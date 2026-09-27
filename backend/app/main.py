@@ -12,25 +12,26 @@ app = FastAPI(
     version="0.1.0",
 )
 
+from app.api.v1.sourcing import router as sourcing_router
+
 # API Routers — app/api/v1/
 # Gestión de endpoints prevista (se montarán más adelante):
 #   auth       — autenticación de floristas y proveedores
 #   providers  — catálogos de distribuidores de NYC
-#   sourcing   — cotización y abastecimiento
 #   chat       — asistente conversacional (Planner, Critic, Narrator)
 #   admin      — administración
 #
 # from app.api.v1.auth import router as auth_router
 # from app.api.v1.providers import router as providers_router
-# from app.api.v1.sourcing import router as sourcing_router
 # from app.api.v1.chat import router as chat_router
 # from app.api.v1.admin import router as admin_router
 #
 # app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 # app.include_router(providers_router, prefix="/api/v1/providers", tags=["providers"])
-# app.include_router(sourcing_router, prefix="/api/v1/sourcing", tags=["sourcing"])
 # app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
 # app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
+
+app.include_router(sourcing_router, prefix="/api/v1/sourcing", tags=["sourcing"])
 
 
 @app.get("/")

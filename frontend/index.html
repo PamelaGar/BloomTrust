@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BloomTrust · Wholesale sourcing membership</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #2C363F;
+      --carbon: #3D434A;
+      --rose: #9E3355;
+      --blush: #F8EEE9;
+      --sage: #C5E3D7;
+      --sage-deep: #6E8F80;
+      --linen: #F9F9F9;
+      --paper: #FFFFFF;
+      --gold: #C4A35A;
+      --hairline: rgba(110, 143, 128, 0.28);
+      --shadow: 0 22px 48px -32px rgba(44, 54, 63, 0.42);
+    }
+    body {
+      font-family: Outfit, ui-sans-serif, system-ui, sans-serif;
+      background: var(--linen);
+      color: var(--ink);
+      font-weight: 400;
+      letter-spacing: 0.011em;
+    }
+    .serif { font-family: "Cormorant Garamond", Georgia, serif; font-weight: 500; letter-spacing: -0.02em; }
+    .pantalla {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.55s ease;
+    }
+    .pantalla.is-activa {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      z-index: 40;
+    }
+    .mesa-scroll { scrollbar-width: none; }
+    .mesa-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .mesa-scroll::-webkit-scrollbar-thumb {
+      background: transparent;
+      border-radius: 999px;
+    }
+    .mesa-scroll:hover::-webkit-scrollbar-thumb { background: rgba(110, 143, 128, 0.28); }
+    #historial > * { animation: surgir 0.55s ease both; }
+    @keyframes surgir {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: none; }
+    }
+    button { transition: transform 0.22s ease, background-color 0.22s ease, box-shadow 0.22s ease, color 0.22s ease, border-color 0.22s ease; }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { transform: none; }
+    #pantalla-splash, #pantalla-onboarding, #pantalla-login, #pantalla-chat, #pantalla-chat aside {
+      background: var(--linen);
+    }
+    #formulario-login {
+      background: #FFFFFF;
+      box-shadow: var(--shadow);
+    }
+    #pantalla-chat aside {
+      box-shadow: none;
+      border-color: transparent;
+    }
+    #pantalla-chat > section > header {
+      position: relative;
+      z-index: 30;
+      background: transparent;
+      border-color: transparent;
+    }
+    #panel-parametros input,
+    #panel-parametros select,
+    #correo-corporativo,
+    #contrasena {
+      background: var(--paper);
+      border-color: var(--hairline);
+      border-radius: 1rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    #panel-parametros input:focus,
+    #panel-parametros select:focus,
+    #correo-corporativo:focus,
+    #contrasena:focus {
+      border-color: var(--rose);
+      box-shadow: 0 0 0 4px rgba(197, 227, 215, 0.72);
+      outline: none;
+    }
+    .burbuja-usuario {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      margin-left: auto;
+      width: fit-content;
+      max-width: min(28rem, 88%);
+      border-radius: 1.35rem 1.35rem 0.45rem 1.35rem;
+      border: 1px solid rgba(196, 163, 90, 0.28);
+      background: linear-gradient(180deg, #fffdfb 0%, var(--blush) 100%);
+      padding: 0.9rem 1.15rem;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      color: var(--ink);
+      box-shadow: 0 12px 28px -22px rgba(44, 54, 63, 0.45);
+    }
+    .foto-referencia {
+      margin-top: 0.75rem;
+      height: 7.25rem;
+      width: 7.25rem;
+      border-radius: 1.15rem;
+      object-fit: cover;
+      box-shadow: 0 10px 22px -16px rgba(44, 54, 63, 0.55);
+    }
+    .nota-mesa { display: flex; align-items: flex-start; gap: 0.9rem; }
+    .burbuja-broker {
+      max-width: min(32rem, 100%);
+      border-radius: 1.35rem 1.35rem 1.35rem 0.45rem;
+      border: 1px solid rgba(44, 54, 63, 0.08);
+      background: #fff;
+      padding: 0.9rem 1.1rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #3D434A;
+    }
+    .tarjeta-asistente,
+    .tarjeta-volumen,
+    .aviso-temporada,
+    .alerta-demanda,
+    .tarjeta-escenario {
+      border-radius: 1.4rem;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    .tarjeta-asistente {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--hairline);
+      padding: 1.05rem 1.2rem 1.15rem;
+      font-size: 0.95rem;
+      line-height: 1.65;
+      color: var(--ink);
+    }
+    .tarjeta-volumen {
+      border: 1px solid rgba(158, 51, 85, 0.16);
+      padding: 1.25rem 1.35rem 1.3rem;
+    }
+    .aviso-temporada {
+      border: 1px solid rgba(158, 51, 85, 0.12);
+      border-left: 3px solid var(--rose);
+      padding: 1rem 1.2rem;
+    }
+    .alerta-demanda {
+      border: 1px solid rgba(110, 143, 128, 0.35);
+      background: linear-gradient(180deg, #fff 0%, #f3faf6 100%);
+      padding: 1rem 1.2rem;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+    .tarjeta-escenario {
+      overflow: hidden;
+      border: 1px solid var(--hairline);
+      color: var(--ink);
+      transition: transform 0.28s ease, box-shadow 0.28s ease;
+    }
+    .tarjeta-escenario:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 26px 50px -30px rgba(44, 54, 63, 0.5);
+    }
+    .tarjeta-escenario header { padding: 0.95rem 1.25rem; color: #fff; }
+    .banda-premium { border-color: #C4A35A; }
+    .banda-premium header { background: #2C363F; }
+    .banda-standard header { background: #3D434A; }
+    .banda-opportunity header { background: #9E3355; }
+    .tarjeta-escenario .cuerpo-tabla { overflow-x: auto; padding: 0.35rem 0.4rem 0.6rem; }
+    .tarjeta-escenario table { width: 100%; min-width: 32rem; text-align: left; font-size: 0.78rem; }
+    .tarjeta-escenario th {
+      padding: 0.85rem 0.75rem 0.55rem;
+      font-size: 0.62rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--carbon);
+    }
+    .enlace-proveedor {
+      font-weight: 500;
+      color: #9E3355;
+      text-underline-offset: 0.18em;
+      transition: color 0.2s ease;
+    }
+    .enlace-proveedor:hover { text-decoration: underline; }
+    .nav-guia {
+      width: 100%;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(44, 54, 63, 0.08);
+      background: #fff;
+      padding: 1.15rem 1.3rem;
+      text-align: left;
+      font-size: 0.98rem;
+      color: #2C363F;
+      box-shadow: 0 18px 40px -32px rgba(44, 54, 63, 0.45);
+    }
+    .nav-guia:hover { border-color: rgba(158, 51, 85, 0.4); color: #9E3355; }
+    .boton-cuenta {
+      border-radius: 999px;
+      border: 1px solid rgba(44, 54, 63, 0.1);
+      background: #fff;
+      padding: 0.55rem 0.95rem;
+      font-size: 0.78rem;
+      color: #2C363F;
+      white-space: nowrap;
+    }
+    .boton-cuenta:hover { border-color: #9E3355; color: #9E3355; }
+    .panel-cuenta {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 0.55rem);
+      width: 18rem;
+      border-radius: 1.25rem;
+      border: 1px solid rgba(44, 54, 63, 0.08);
+      background: #F8FAFC;
+      padding: 1.1rem 1.15rem 1.15rem;
+      text-align: left;
+      box-shadow: 0 22px 48px -28px rgba(44, 54, 63, 0.45);
+      z-index: 2;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-8px);
+      pointer-events: none;
+      transition: opacity 0.22s ease, transform 0.22s ease, visibility 0.22s ease;
+    }
+    .panel-cuenta.is-abierto {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+      pointer-events: auto;
+    }
+    .boton-salir {
+      display: block;
+      width: 100%;
+      margin-top: 0.95rem;
+      border-radius: 999px;
+      border: 1px solid rgba(158, 51, 85, 0.28);
+      background: #fff;
+      padding: 0.72rem 0.95rem;
+      text-align: left;
+      font-size: 0.84rem;
+      color: #9E3355;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .boton-salir:hover { background: #9E3355; color: #fff; }
+    .modal-capa {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+      background: rgba(44, 54, 63, 0.32);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.32s ease, visibility 0.32s ease;
+    }
+    .modal-capa.is-abierta { opacity: 1; visibility: visible; }
+    .modal-panel {
+      width: min(34rem, 100%);
+      max-height: min(85vh, 40rem);
+      overflow: auto;
+      border-radius: 1.6rem;
+      background: #fff;
+      padding: 1.5rem 1.5rem 1.35rem;
+      box-shadow: 0 30px 70px -36px rgba(44, 54, 63, 0.65);
+      transform: translateY(14px);
+      transition: transform 0.32s ease;
+    }
+    .modal-capa.is-abierta .modal-panel { transform: none; }
+    .modal-escaparate {
+      width: min(52rem, 100%);
+      max-height: min(90vh, 48rem);
+      background: #F8FAFC;
+    }
+    .modal-catalogo { width: min(44rem, 100%); max-height: min(90vh, 48rem); background: #F8FAFC; }
+    .buscador-botanico {
+      width: 100%;
+      border-radius: 999px;
+      border: 1px solid rgba(44, 54, 63, 0.1);
+      background: #fff;
+      padding: 0.85rem 1.15rem;
+      font-size: 0.92rem;
+      color: #2C363F;
+      outline: none;
+    }
+    .buscador-botanico:focus { border-color: #9E3355; box-shadow: 0 0 0 4px rgba(197, 227, 215, 0.7); }
+    .ficha-botanica { border-radius: 1.4rem; background: #fff; padding: 1.15rem 1.2rem 1.2rem; }
+    .bloque-hidratacion { border-radius: 1rem; background: #C5E3D7; padding: 0.9rem 1rem; }
+    .bloque-frio { border-radius: 1rem; background: #E4EEF5; padding: 0.9rem 1rem; }
+    .bloque-proceso { border-radius: 1rem; background: #F2B6C2; padding: 0.9rem 1rem; }
+    .foto-oferta { position: relative; height: 15rem; overflow: hidden; }
+    .foto-oferta img { height: 100%; width: 100%; object-fit: cover; }
+    .foto-oferta .tag-overstock { position: absolute; top: 1rem; left: 1rem; }
+    .ticker-ventana {
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid rgba(44, 54, 63, 0.08);
+      background: #F8FAFC;
+    }
+    .ticker-pista {
+      display: flex;
+      width: max-content;
+      animation: ticker-derecha 38s linear infinite;
+    }
+    .ticker-ventana:hover .ticker-pista { animation-play-state: paused; }
+    .ticker-grupo {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.45rem 0.9rem;
+    }
+    .ticker-aviso {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: #9E3355;
+      white-space: nowrap;
+    }
+    .ticker-moda {
+      font-size: 0.78rem;
+      color: #2C363F;
+      white-space: nowrap;
+    }
+    .ticker-mini {
+      height: 2.35rem;
+      width: 2.35rem;
+      flex: none;
+      border-radius: 999px;
+      object-fit: cover;
+      box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(158, 51, 85, 0.35);
+    }
+    @keyframes ticker-derecha {
+      from { transform: translateX(-50%); }
+      to { transform: translateX(0); }
+    }
+    .tarjeta-oferta {
+      overflow: hidden;
+      border-radius: 1.4rem;
+      border: 1px solid rgba(44, 54, 63, 0.06);
+      background: #fff;
+    }
+    .tag-overstock {
+      display: inline-flex;
+      border-radius: 999px;
+      background: #9E3355;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #fff;
+    }
+    .boton-oferta {
+      width: 100%;
+      border-radius: 999px;
+      background: #9E3355;
+      padding: 0.8rem 1rem;
+      font-size: 0.84rem;
+      color: #fff;
+    }
+    .tarjeta-oferta h4,
+    .tarjeta-oferta .precio-oferta { color: #2C363F; }
+    .modal-panel h3 { color: #2C363F; }
+    .modal-panel p, .modal-panel li { color: #3D434A; }
+    .composer-flotante {
+      background: transparent;
+      padding: 0 1rem 1.15rem;
+    }
+    .composer-caja {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 48rem;
+      padding: 0.4rem 0.4rem 0.4rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid var(--hairline);
+      background: #FFFFFF;
+      box-shadow: 0 18px 40px -24px rgba(44, 54, 63, 0.55);
+      transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease;
+    }
+    .composer-caja:focus-within {
+      border-color: rgba(158, 51, 85, 0.55);
+      box-shadow: 0 20px 44px -22px rgba(158, 51, 85, 0.35), 0 0 0 4px rgba(197, 227, 215, 0.75);
+      transform: translateY(-2px);
+    }
+    #mensaje {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      background: transparent;
+      padding: 0.75rem 0.35rem;
+      font-size: 0.95rem;
+      color: var(--ink);
+      outline: none;
+    }
+    #mensaje::placeholder { color: rgba(61, 67, 74, 0.48); }
+    #enviar {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border-radius: 999px;
+      background: var(--ink);
+      padding: 0.75rem 1.15rem;
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+      color: white;
+    }
+    #enviar:hover { background: #3D434A; }
+    @media (max-width: 1023px) {
+      #pantalla-chat { overflow-y: auto; }
+      #pantalla-chat > section { min-height: 88svh; }
+      .composer-flotante { padding-bottom: 1.35rem; position: sticky; bottom: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pantalla, #historial > *, button, .tarjeta-escenario, .composer-caja, .modal-capa, .modal-panel, .ticker-pista, .panel-cuenta { transition: none; animation: none; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#F9F9F9] text-[#2C363F] antialiased">
+  <section id="pantalla-splash" class="pantalla is-activa fixed inset-0 overflow-y-auto bg-[#F9F9F9]" aria-label="BloomTrust cover">
+    <div class="mx-auto grid min-h-full w-full max-w-6xl items-center gap-10 px-6 py-12 sm:px-10 lg:grid-cols-[minmax(18rem,32rem)_minmax(0,1fr)] lg:gap-16">
+      <div class="mx-auto w-full max-w-[32rem]">
+        <img src="logo.png?v=5" alt="BloomTrust, floral sourcing platform" class="mx-auto h-auto w-full object-contain">
+      </div>
+      <div>
+        <p class="text-[11px] font-medium tracking-[0.22em] text-[#9E3355] uppercase">AI agent</p>
+        <h1 class="serif mt-3 text-4xl leading-[1.05] sm:text-5xl">Wholesale sourcing for event planners</h1>
+        <p class="mt-4 max-w-xl text-base leading-relaxed text-[#3D434A]">The agent reads your visual reference, matches it to New York wholesale stock, and anticipates the pressure of the month. The desk compares. It does not store or move flowers.</p>
+        <ul class="mt-8 space-y-4">
+          <li class="rounded-[1.25rem] border border-[#6E8F80]/20 bg-white px-5 py-4 transition hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-28px_rgba(44,54,63,0.45)]">
+            <p class="text-sm font-medium">Visual Trend Recognition</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">Identifies flower species, color palette, and arrangement style from your reference photo.</p>
+          </li>
+          <li class="rounded-[1.25rem] border border-[#6E8F80]/20 bg-white px-5 py-4 transition hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-28px_rgba(44,54,63,0.45)]">
+            <p class="text-sm font-medium">Intelligent Substitute Finder</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">Compares requested flowers with available NYC stock and suggests aesthetic alternatives when a species is out of season.</p>
+          </li>
+          <li class="rounded-[1.25rem] border border-[#6E8F80]/20 bg-white px-5 py-4 transition hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-28px_rgba(44,54,63,0.45)]">
+            <p class="text-sm font-medium">Predictive Market Analysis</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">Anticipates demand peaks and price volatility on specific New York dates so you can optimize wholesale buying.</p>
+          </li>
+        </ul>
+        <button id="boton-portada" type="button" class="mt-8 rounded-full bg-[#9E3355] px-6 py-3 text-sm text-white transition hover:bg-[#D47A8C]">Continue</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pantalla-onboarding" class="pantalla fixed inset-0 overflow-y-auto bg-[#F9F9F9]" aria-hidden="true" inert aria-label="Consultation disclaimer">
+    <div class="mx-auto flex min-h-full w-full max-w-lg flex-col px-6 py-10">
+      <div class="mx-auto w-full max-w-sm">
+        <img src="logo.png?v=5" alt="BloomTrust" class="mx-auto h-auto w-full object-contain">
+      </div>
+      <div class="flex flex-1 flex-col justify-center py-10">
+        <article id="diapositiva-1">
+          <p class="text-sm font-medium tracking-[0.18em] text-[#9E3355] uppercase">01 · Disclaimer</p>
+          <h1 class="serif mt-4 text-4xl leading-tight sm:text-5xl">Interactive consultation platform</h1>
+          <p class="mt-4 text-base leading-relaxed text-[#3D434A]">BloomTrust does not store, transport, or sell flowers directly.</p>
+        </article>
+        <article id="diapositiva-2" class="hidden">
+          <p class="text-sm font-medium tracking-[0.18em] text-[#9E3355] uppercase">02 · Disclaimer</p>
+          <h1 class="serif mt-4 text-4xl leading-tight sm:text-5xl">B2B market connectors</h1>
+          <p class="mt-4 text-base leading-relaxed text-[#3D434A]">We act as an intelligent bridge between event planners and the stock available from NYC wholesalers.</p>
+        </article>
+        <article id="diapositiva-3" class="hidden">
+          <p class="text-sm font-medium tracking-[0.18em] text-[#9E3355] uppercase">03 · Disclaimer</p>
+          <h1 class="serif mt-4 text-4xl leading-tight sm:text-5xl">Deterministic optimization</h1>
+          <p class="mt-4 text-base leading-relaxed text-[#3D434A]">We help you compare scenarios (Premium, Standard, Opportunity) so you can choose before you negotiate with your supplier.</p>
+        </article>
+      </div>
+      <div class="flex items-center justify-between gap-4 pb-2">
+        <div id="indicador-slides" class="flex gap-2" aria-hidden="true">
+          <span class="h-1 w-8 rounded-full bg-[#9E3355]"></span>
+          <span class="h-1 w-8 rounded-full bg-[#F2B6C2]"></span>
+          <span class="h-1 w-8 rounded-full bg-[#F2B6C2]"></span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="boton-saltar" type="button" class="px-3 py-3 text-sm text-[#3D434A] transition hover:text-[#2C363F]">Skip</button>
+          <button id="boton-siguiente" type="button" class="rounded-full bg-[#9E3355] px-6 py-3 text-sm text-white transition hover:bg-[#D47A8C]">Next</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pantalla-login" class="pantalla fixed inset-0 overflow-y-auto bg-[#F9F9F9]" aria-hidden="true" inert aria-label="Membership access">
+    <div class="flex min-h-full items-center justify-center px-6 py-12">
+      <form id="formulario-login" class="w-full max-w-md rounded-[1.75rem] border border-[#6E8F80]/20 px-8 py-10 sm:px-10" novalidate>
+        <img src="logo.png?v=5" alt="BloomTrust" class="mx-auto h-auto w-full max-w-xs object-contain">
+        <h1 class="serif mt-6 text-center text-4xl leading-none">Wholesale sourcing membership</h1>
+        <p class="mt-2 text-center text-sm leading-relaxed text-[#3D434A]">A paid desk for planners. This session opens the workspace. It does not confirm a subscription on a server.</p>
+        <label for="correo-corporativo" class="mt-8 block text-xs font-medium tracking-wide text-[#3D434A] uppercase">Corporate email</label>
+        <input id="correo-corporativo" name="correo" type="email" autocomplete="username" inputmode="email" class="mt-2 w-full rounded-xl border border-[#2C363F]/15 bg-[#F9F9F9] px-4 py-3 text-[#2C363F] outline-none placeholder:text-[#3D434A]/45 focus:border-[#9E3355] focus:ring-2 focus:ring-[#9E3355]/20" placeholder="planner@studio.com">
+        <label for="contrasena" class="mt-4 block text-xs font-medium tracking-wide text-[#3D434A] uppercase">Password</label>
+        <input id="contrasena" name="contrasena" type="password" autocomplete="current-password" class="mt-2 w-full rounded-xl border border-[#2C363F]/15 bg-[#F9F9F9] px-4 py-3 text-[#2C363F] outline-none placeholder:text-[#3D434A]/45 focus:border-[#9E3355] focus:ring-2 focus:ring-[#9E3355]/20" placeholder="••••••••">
+        <p id="aviso-login" class="mt-3 hidden text-sm text-[#9E3355]" role="alert"></p>
+        <button id="boton-acceder" type="submit" class="mt-6 w-full rounded-full bg-[#9E3355] py-3 text-sm text-white transition hover:bg-[#D47A8C]">Enter</button>
+      </form>
+    </div>
+  </section>
+
+    <div id="pantalla-chat" class="pantalla fixed inset-0 flex flex-col bg-[#F9F9F9] lg:flex-row" aria-hidden="true" inert aria-label="Sourcing desk">
+    <aside class="flex w-full shrink-0 flex-col bg-[#F9F9F9] lg:h-full lg:w-[24rem]">
+      <div class="flex justify-center bg-[#F9F9F9] px-6 pt-10 pb-6">
+        <img src="logo.png?v=5" alt="BloomTrust" class="mx-auto w-full max-w-[19rem] object-contain">
+      </div>
+      <section id="recomendaciones-almacen" class="mx-6 mb-4 hidden rounded-[1.4rem] bg-white p-4" aria-live="polite">
+        <p class="text-[11px] font-medium tracking-[0.16em] text-[#9E3355] uppercase">Recommendations for Storage</p>
+        <h3 id="almacen-especie" class="serif mt-1 text-3xl leading-none text-[#2C363F]"></h3>
+        <p id="almacen-cientifico" class="mt-1 text-sm italic text-[#3D434A]"></p>
+        <div class="bloque-hidratacion mt-3">
+          <p class="text-sm font-medium text-[#2C363F]">💧 Hydration</p>
+          <p id="almacen-hidratacion" class="mt-1 text-sm leading-relaxed text-[#3D434A]"></p>
+        </div>
+        <div class="bloque-frio mt-3">
+          <p class="text-sm font-medium text-[#2C363F]">🌡️ Cold Storage</p>
+          <p id="almacen-frio" class="mt-1 text-sm leading-relaxed text-[#3D434A]"></p>
+        </div>
+        <div class="bloque-proceso mt-3">
+          <p class="text-sm font-medium text-[#2C363F]">⚠️ Processing Alert</p>
+          <p id="almacen-proceso" class="mt-1 text-sm leading-relaxed text-[#3D434A]"></p>
+        </div>
+      </section>
+      <nav class="mx-6 mb-8 flex flex-col gap-3 lg:mt-auto" aria-label="Desk guides">
+        <button id="boton-guia" type="button" class="nav-guia">🧊 Storage &amp; Care Guide</button>
+        <button id="boton-tendencias" type="button" class="nav-guia">✨ NYC Trends &amp; Live Offers</button>
+      </nav>
+    </aside>
+
+    <section class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header class="grid items-start gap-3 px-6 pt-6 pb-2 sm:grid-cols-[1fr_auto_1fr] sm:px-8">
+        <div class="hidden sm:block" aria-hidden="true"></div>
+        <div class="text-center">
+          <p class="text-[11px] font-medium tracking-[0.22em] text-[#9E3355] uppercase">Desk</p>
+          <h2 class="serif text-4xl leading-none text-[#2C363F]">Sourcing chat</h2>
+        </div>
+        <div id="caja-cuenta" class="relative justify-self-end">
+          <button id="boton-cuenta" type="button" class="boton-cuenta" aria-expanded="false" aria-haspopup="menu" aria-controls="panel-cuenta">👤 Account &amp; Subscription</button>
+          <div id="panel-cuenta" class="panel-cuenta" role="menu" aria-label="Account and subscription">
+            <p class="text-[11px] font-medium tracking-[0.16em] text-[#9E3355] uppercase">Event Planner</p>
+            <p class="serif mt-1 text-3xl leading-none text-[#2C363F]">Corporate desk</p>
+            <p class="mt-3 text-sm leading-relaxed text-[#3D434A]">Membership <span class="font-medium text-[#9E3355]">Premium · Active</span></p>
+            <p class="mt-2 text-xs leading-relaxed text-[#3D434A]">Shown for this desk session. It does not confirm a subscription on a server.</p>
+            <button id="boton-salir" type="button" class="boton-salir" role="menuitem">🚪 Sign Out</button>
+          </div>
+        </div>
+      </header>
+      <div id="historial" class="mesa-scroll mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 overflow-y-auto px-4 py-6 sm:px-6" aria-live="polite"></div>
+      <form id="composer" class="composer-flotante" novalidate>
+        <div class="composer-caja">
+          <input id="chat-file-input" type="file" accept="image/*" class="sr-only">
+          <button id="boton-adjuntar" type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#3D434A] transition hover:bg-[#F2B6C2]/50 hover:text-[#9E3355]" aria-label="Attach image">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M21.4 11.1 12.5 20a5 5 0 0 1-7.1-7.1l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-2.8-2.8l8.2-8.2"/></svg>
+          </button>
+          <div id="chip-archivo" class="hidden max-w-[11rem] shrink-0 items-center gap-2 rounded-full bg-white py-1 pr-2 pl-1">
+            <img id="vista-previa" alt="" class="h-8 w-8 rounded-full object-cover">
+            <span id="texto-archivo" class="min-w-0 flex-1 truncate text-xs text-[#3D434A]"></span>
+            <button id="boton-quitar-archivo" type="button" class="text-xs text-[#3D434A] transition hover:text-[#9E3355]" aria-label="Remove image">Remove</button>
+          </div>
+          <label for="mensaje" class="sr-only">Message</label>
+          <input id="mensaje" type="text" autocomplete="off" placeholder="Share the event date, budget, and flowers…">
+          <button id="enviar" type="submit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+            Send
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <div id="modal-guia" class="modal-capa" aria-hidden="true">
+      <div class="modal-panel modal-catalogo" role="dialog" aria-modal="true" aria-labelledby="titulo-guia">
+        <div class="flex items-start justify-between gap-4">
+          <h3 id="titulo-guia" class="serif text-4xl leading-none text-[#2C363F]">🌿 Global Botanical Care &amp; Storage Database</h3>
+          <button type="button" class="boton-cerrar shrink-0 rounded-full bg-white px-3 py-2 text-sm text-[#3D434A]" data-cerrar="modal-guia">Close</button>
+        </div>
+        <label for="buscador-botanico" class="sr-only">Search the botanical catalog</label>
+        <input id="buscador-botanico" class="buscador-botanico mt-5" type="search" autocomplete="off" placeholder="🔍 Search by common or scientific name (e.g., Peony, Rosa, Hydrangea)...">
+        <div id="catalogo-resultado" class="mt-5 space-y-4" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div id="modal-tendencias" class="modal-capa" aria-hidden="true">
+      <div class="modal-panel modal-escaparate" role="dialog" aria-modal="true" aria-labelledby="titulo-tendencias">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-[11px] font-medium tracking-[0.18em] text-[#9E3355] uppercase">✨ This week in Manhattan</p>
+            <h3 id="titulo-tendencias" class="serif mt-2 text-4xl leading-none text-[#2C363F]">NYC Trends &amp; Live Offers</h3>
+          </div>
+          <button type="button" class="boton-cerrar rounded-full bg-white px-3 py-2 text-sm text-[#3D434A]" data-cerrar="modal-tendencias">Close</button>
+        </div>
+        <p class="mt-4 max-w-2xl text-sm leading-relaxed text-[#2C363F]">Monochrome, high-density tablescapes are leading weddings and galas. These two stems are the lots moving at Chelsea Flower Market.</p>
+        <div class="ticker-ventana mt-5" aria-label="Live Manhattan trends of the week">
+          <div class="ticker-pista">
+            <div class="ticker-grupo">
+              <span class="ticker-aviso">🚨 LIVE MANHATTAN TRENDS OF THE WEEK:</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1502635385003-ee1e6a1a742d?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="Reception table with floral centerpieces under a chandelier">
+              <span class="ticker-moda">Gala tables under a single floral cloud</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1519225421980-715cb0215aed?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="Long banquet table dressed with small floral arrangements">
+              <span class="ticker-moda">High-density runners down the banquet</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1487530811176-3780de880c2d?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="Bridal bouquet of garden roses and berries">
+              <span class="ticker-moda">Garden roses packed for the ceremony</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1563241527-3004b7be0ffd?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="Peony and rose arrangement on a wooden table">
+              <span class="ticker-moda">Blush peony clusters at place settings</span>
+            </div>
+            <div class="ticker-grupo" aria-hidden="true">
+              <span class="ticker-aviso">🚨 LIVE MANHATTAN TRENDS OF THE WEEK:</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1502635385003-ee1e6a1a742d?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="">
+              <span class="ticker-moda">Gala tables under a single floral cloud</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1519225421980-715cb0215aed?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="">
+              <span class="ticker-moda">High-density runners down the banquet</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1487530811176-3780de880c2d?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="">
+              <span class="ticker-moda">Garden roses packed for the ceremony</span>
+              <img class="ticker-mini" src="https://images.unsplash.com/photo-1563241527-3004b7be0ffd?auto=format&amp;fit=crop&amp;w=240&amp;h=240&amp;q=80" alt="">
+              <span class="ticker-moda">Blush peony clusters at place settings</span>
+            </div>
+          </div>
+        </div>
+        <div class="mt-5 grid gap-4 sm:grid-cols-2">
+          <article class="tarjeta-oferta bg-white">
+            <div class="foto-oferta">
+              <img src="https://images.unsplash.com/photo-1582794543139-8ac9cb0f7b11?auto=format&amp;fit=crop&amp;w=1400&amp;q=80" alt="Muted coral garden roses arranged in a bouquet" width="1400" height="900">
+              <span class="tag-overstock">🔥 30% OFF - OVERSTOCK</span>
+            </div>
+            <div class="p-5">
+              <h4 class="serif text-2xl leading-tight text-[#2C363F]">👑 Muted Coral Garden Roses</h4>
+              <p class="mt-2 text-sm text-[#3D434A]">🛍️ Wholesaler · Chelsea Cut Flowers, Chelsea Flower Market</p>
+              <p class="precio-oferta mt-3 text-sm text-[#3D434A]">💰 Liquid price <span class="line-through">$2.60 USD</span> <span class="text-xl font-medium text-[#2C363F]">$1.80 USD</span> per stem</p>
+              <button type="button" class="boton-oferta mt-4" data-oferta="Muted Coral Garden Roses" data-proveedor="Chelsea Cut Flowers" data-precio="$1.80 USD">Use in Sourcing Chat</button>
+            </div>
+          </article>
+          <article class="tarjeta-oferta bg-white">
+            <div class="foto-oferta">
+              <img src="https://images.unsplash.com/photo-1545818754-87cb4616981b?auto=format&amp;fit=crop&amp;w=1400&amp;q=80" alt="White and purple Phalaenopsis orchids" width="1400" height="900">
+              <span class="tag-overstock">🔥 30% OFF - OVERSTOCK</span>
+            </div>
+            <div class="p-5">
+              <h4 class="serif text-2xl leading-tight text-[#2C363F]">✨ Plum Phalaenopsis Orchids</h4>
+              <p class="mt-2 text-sm text-[#3D434A]">🛍️ Wholesaler · Chelsea Orchid Bench, Chelsea Flower Market</p>
+              <p class="precio-oferta mt-3 text-sm text-[#3D434A]">💰 Liquid price <span class="line-through">$6.40 USD</span> <span class="text-xl font-medium text-[#2C363F]">$4.48 USD</span> per stem</p>
+              <button type="button" class="boton-oferta mt-4" data-oferta="Plum Phalaenopsis Orchids" data-proveedor="Chelsea Orchid Bench" data-precio="$4.48 USD">Use in Sourcing Chat</button>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = "http://127.0.0.1:8000/api/v1/sourcing/analyze-event";
+    const PANTALLAS = ["pantalla-splash", "pantalla-onboarding", "pantalla-login", "pantalla-chat"];
+    const DIAPOSITIVAS = ["diapositiva-1", "diapositiva-2", "diapositiva-3"];
+    const PICO = { enero: 12, febrero: 15, marzo: 18, abril: 26, mayo: 34, junio: 40, julio: 16, agosto: 12, septiembre: 28, octubre: 33, noviembre: 30, diciembre: 36 };
+    const MES_ALIAS = {
+      enero: "enero", febrero: "febrero", marzo: "marzo", abril: "abril", mayo: "mayo", junio: "junio",
+      julio: "julio", agosto: "agosto", septiembre: "septiembre", setiembre: "septiembre", octubre: "octubre",
+      noviembre: "noviembre", diciembre: "diciembre", january: "enero", february: "febrero", march: "marzo",
+      april: "abril", may: "mayo", june: "junio", july: "julio", august: "agosto", september: "septiembre",
+      october: "octubre", november: "noviembre", december: "diciembre",
+    };
+    const FLOR = [
+      ["peonia", "peony", "peonies"],
+      ["orquidea", "orchid", "orchids"],
+      ["hortensia", "hydrangea", "hydrangeas"],
+      ["ranunculo", "ranunculus"],
+      ["tulipan", "tulip", "tulips"],
+      ["clavel", "carnation", "carnations", "dianthus"],
+      ["anemona", "anemone", "anemones"],
+      ["dalia", "dahlia", "dahlias"],
+      ["crisantemo", "chrysanthemum", "chrysanthemums"],
+      ["girasol", "sunflower", "sunflowers"],
+      ["rosa", "rose", "roses"],
+    ];
+    const NOMBRE_EN = {
+      rosa: "Rose", peonia: "Peony", hortensia: "Hydrangea", orquidea: "Orchid",
+      ranunculo: "Ranunculus", tulipan: "Tulip", clavel: "Carnation", girasol: "Sunflower",
+      anemona: "Anemone", dalia: "Dahlia", crisantemo: "Chrysanthemum",
+    };
+    const MAYOREO = {
+      rosa: 2.25, peonia: 6, hortensia: 3.25, orquidea: 7.5, ranunculo: 2.1,
+      tulipan: 1.35, clavel: 1.15, girasol: 1.6, anemona: 1.9, dalia: 2.4, crisantemo: 1.25,
+    };
+    const VENTANA = {
+      rosa: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      orquidea: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      peonia: [3, 4, 5],
+      ranunculo: [12, 1, 2, 3, 4, 5],
+      tulipan: [12, 1, 2, 3, 4, 5],
+      clavel: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      anemona: [12, 1, 2, 3, 4, 5],
+      dalia: [6, 7, 8, 9, 10],
+      hortensia: [6, 7, 8, 9, 10, 11],
+      girasol: [6, 7, 8, 9, 10],
+      crisantemo: [9, 10, 11],
+    };
+    const MES_NUM = {
+      enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+      julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+    };
+    const MES_EN = {
+      enero: "January", febrero: "February", marzo: "March", abril: "April", mayo: "May", junio: "June",
+      julio: "July", agosto: "August", septiembre: "September", octubre: "October", noviembre: "November", diciembre: "December",
+    };
+    const MOTIVO = {
+      enero: "New Year galas in NYC",
+      febrero: "Valentine's week demand in NYC",
+      marzo: "spring galas before the wedding peak",
+      abril: "the opening of wedding season in NYC",
+      mayo: "wedding peaks in NYC",
+      junio: "the New York wedding peak",
+      julio: "summer corporate events in NYC",
+      agosto: "the quiet stretch outside the wedding peak",
+      septiembre: "post-summer galas in NYC",
+      octubre: "the fall gala season in NYC",
+      noviembre: "holiday dinners in NYC",
+      diciembre: "year-end parties in NYC",
+    };
+    const NOMBRES_MES = "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december";
+    const ENCABEZADO = {
+      Premium: { precio: 5.5, proveedor: "Chelsea Cut Flowers" },
+      Standard: { precio: 3.5, proveedor: "Midtown Stem Supply" },
+      Opportunity: { precio: 2.1, proveedor: "Hunts Point Surplus" },
+    };
+    const TALLOS_POR_MESA = 102;
+
+    const historial = document.getElementById("historial");
+    const vistaPrevia = document.getElementById("vista-previa");
+    const textoArchivo = document.getElementById("texto-archivo");
+    const chipArchivo = document.getElementById("chip-archivo");
+    let archivoActual = null;
+    let slideActual = 0;
+    let mesaLista = false;
+
+    function mostrarPantalla(id) {
+      PANTALLAS.forEach((nombre) => {
+        const nodo = document.getElementById(nombre);
+        const activa = nombre === id;
+        nodo.classList.toggle("is-activa", activa);
+        nodo.setAttribute("aria-hidden", activa ? "false" : "true");
+        if (activa) nodo.removeAttribute("inert");
+        else nodo.setAttribute("inert", "");
+      });
+      if (id === "pantalla-chat" && !mesaLista) {
+        mesaLista = true;
+        estadoVacio();
+      }
+    }
+
+    function pintarIndicador() {
+      document.querySelectorAll("#indicador-slides span").forEach((marca, indice) => {
+        marca.className = indice === slideActual
+          ? "h-1 w-8 rounded-full bg-[#9E3355]"
+          : "h-1 w-8 rounded-full bg-[#F2B6C2]";
+      });
+      document.getElementById("boton-siguiente").textContent = slideActual === 2 ? "Enter" : "Next";
+    }
+
+    function mostrarSlide(indice) {
+      slideActual = indice;
+      DIAPOSITIVAS.forEach((id, posicion) => {
+        document.getElementById(id).classList.toggle("hidden", posicion !== indice);
+      });
+      pintarIndicador();
+    }
+
+    function escapar(valor) {
+      return String(valor ?? "").replace(/[&<>"']/g, (signo) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      })[signo]);
+    }
+
+    function plano(texto) {
+      return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function desplazarse() {
+      historial.scrollTop = historial.scrollHeight;
+    }
+
+    const SALUDO = "Hi! I am your BloomTrust Sourcing Broker. Please share your event date, budget, and design ideas or attach a reference image to begin your wholesale optimization.";
+
+    function estadoVacio() {
+      historial.innerHTML = "";
+      notaBroker(SALUDO);
+    }
+
+    function notaConversacional(texto) {
+      const fila = document.createElement("div");
+      fila.className = "nota-mesa";
+      const burbuja = document.createElement("article");
+      burbuja.className = "burbuja-broker";
+      burbuja.textContent = texto;
+      fila.append(avatarFlor(), burbuja);
+      historial.appendChild(fila);
+      desplazarse();
+    }
+
+    function notaBroker(contenido) {
+      const fila = document.createElement("div");
+      fila.className = "nota-mesa";
+      const columna = document.createElement("div");
+      columna.className = "flex min-w-0 flex-1 flex-col gap-3";
+      if (typeof contenido === "string") {
+        const tarjeta = document.createElement("article");
+        tarjeta.className = "tarjeta-asistente";
+        tarjeta.textContent = contenido;
+        columna.appendChild(tarjeta);
+      } else {
+        contenido.forEach((nodo) => columna.appendChild(nodo));
+      }
+      fila.append(avatarFlor(), columna);
+      historial.appendChild(fila);
+      desplazarse();
+    }
+
+    function burbujaUsuario(texto, archivo) {
+      const nodo = document.createElement("article");
+      nodo.className = "burbuja-usuario";
+      if (texto) {
+        const parrafo = document.createElement("p");
+        parrafo.textContent = texto;
+        nodo.appendChild(parrafo);
+      }
+      if (archivo) {
+        const foto = document.createElement("img");
+        foto.src = URL.createObjectURL(archivo);
+        foto.alt = "Reference photo";
+        foto.className = "foto-referencia";
+        nodo.appendChild(foto);
+      }
+      historial.appendChild(nodo);
+      desplazarse();
+    }
+
+    function avatarFlor() {
+      const icono = document.createElement("img");
+      icono.src = "flor.png";
+      icono.alt = "IA";
+      icono.className = "w-8 h-8 object-contain";
+      return icono;
+    }
+
+    function leerMes(texto) {
+      const tokens = plano(texto).split(/[^a-z]+/);
+      return tokens.map((token) => MES_ALIAS[token]).find(Boolean) || "";
+    }
+
+    function leerTallos(texto) {
+      const match = String(texto || "").replace(/,/g, "").match(/\b(\d+)\s*(?:stems?|tallos?)\b/i);
+      if (!match) return 0;
+      const cantidad = Number(match[1]);
+      return Number.isInteger(cantidad) && cantidad > 0 ? cantidad : 0;
+    }
+
+    function leerPresupuesto(texto) {
+      const fuente = texto.replace(/,/g, "");
+      const marcado = fuente.match(/(?:presupuesto|budget|usd|\$)\s*[:.]?\s*(\d+(?:\.\d+)?)/i)
+        || fuente.match(/(\d+(?:\.\d+)?)\s*(?:usd|dollars|dolares|dólares)/i);
+      if (marcado) {
+        const valor = Number(marcado[1]);
+        if (Number.isFinite(valor) && valor > 0) return valor;
+      }
+      const cifras = [...fuente.matchAll(/(?:^|[^\d])(\d{3,7}(?:\.\d+)?)(?!\d)/g)]
+        .map((coincidencia) => Number(coincidencia[1]))
+        .filter((valor) => valor >= 100 && (valor < 1900 || valor > 2100));
+      return cifras[0] || 0;
+    }
+
+    function leerMesas(texto) {
+      const marcado = plano(texto).match(/\b(\d+)\s*(?:tables|table|mesas|mesa)\b/);
+      if (!marcado) return 0;
+      const mesas = Number(marcado[1]);
+      return mesas > 0 && mesas <= 200 ? mesas : 0;
+    }
+
+    function leerFlores(texto) {
+      const base = plano(texto);
+      const halladas = FLOR.map((grupo) => {
+        const idx = grupo.reduce((mejor, alias) => {
+          const puesto = base.indexOf(alias);
+          return puesto >= 0 && (mejor < 0 || puesto < mejor) ? puesto : mejor;
+        }, -1);
+        return idx >= 0 ? { idx, clave: grupo[0], nombre: NOMBRE_EN[grupo[0]] } : null;
+      }).filter(Boolean).sort((a, b) => a.idx - b.idx);
+      return halladas;
+    }
+
+    function leerEstilo(texto) {
+      const base = plano(texto);
+      const estilos = [
+        ["romantic", "Romantic"], ["romantico", "Romantic"], ["garden", "Garden"], ["jardin", "Garden"],
+        ["luxury", "Luxury"], ["lujo", "Luxury"], ["classic", "Classic"], ["clasico", "Classic"],
+        ["modern", "Modern"], ["moderno", "Modern"], ["minimal", "Minimal"], ["boho", "Bohemian"],
+        ["editorial", "Editorial"],
+      ];
+      const unicos = [...new Set(estilos.filter(([clave]) => base.includes(clave)).map(([, nombre]) => nombre))];
+      return unicos.join(" ");
+    }
+
+    function ordinal(dia) {
+      const resto = dia % 100;
+      if (resto >= 11 && resto <= 13) return `${dia}th`;
+      const ultimo = dia % 10;
+      if (ultimo === 1) return `${dia}st`;
+      if (ultimo === 2) return `${dia}nd`;
+      if (ultimo === 3) return `${dia}rd`;
+      return `${dia}th`;
+    }
+
+    function leerFecha(texto) {
+      const iso = String(texto).match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+      if (iso) {
+        const mesNum = Number(iso[2]);
+        const dia = Number(iso[3]);
+        const clave = Object.keys(MES_NUM).find((nombre) => MES_NUM[nombre] === mesNum) || "";
+        if (clave && dia >= 1 && dia <= 31) return { clave, dia, mesNum };
+      }
+      const base = plano(texto);
+      const mesDia = base.match(new RegExp(`\\b(${NOMBRES_MES})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`));
+      if (mesDia) {
+        const dia = Number(mesDia[2]);
+        const clave = MES_ALIAS[mesDia[1]] || "";
+        if (clave && dia >= 1 && dia <= 31) return { clave, dia, mesNum: MES_NUM[clave] };
+      }
+      const diaMes = base.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:de\\s+)?(${NOMBRES_MES})\\b`));
+      if (diaMes) {
+        const dia = Number(diaMes[1]);
+        const clave = MES_ALIAS[diaMes[2]] || "";
+        if (clave && dia >= 1 && dia <= 31) return { clave, dia, mesNum: MES_NUM[clave] };
+      }
+      const clave = leerMes(texto);
+      return clave ? { clave, dia: 0, mesNum: MES_NUM[clave] } : { clave: "", dia: 0, mesNum: 0 };
+    }
+
+    function fraseFecha(fecha) {
+      if (!fecha.clave) return "";
+      return fecha.dia ? `${MES_EN[fecha.clave]} ${ordinal(fecha.dia)}` : MES_EN[fecha.clave];
+    }
+
+    function textoTemporada(flores, fecha) {
+      const cuando = fraseFecha(fecha);
+      if (!cuando) return "Add the event date to confirm the NYC wholesale window.";
+      const fuera = flores.filter((flor) => !(VENTANA[flor.clave] || []).includes(fecha.mesNum));
+      if (!fuera.length) {
+        if (flores.length === 2) return `${cuando} is within the optimal wholesale seasonal window for both species in NYC.`;
+        if (flores.length === 1) return `${cuando} is within the optimal wholesale seasonal window for ${flores[0].nombre} in NYC.`;
+        return `${cuando} is within the optimal wholesale seasonal window for all listed species in NYC.`;
+      }
+      const nombres = fuera.map((flor) => flor.nombre).join(" and ");
+      const dentro = flores.filter((flor) => (VENTANA[flor.clave] || []).includes(fecha.mesNum)).map((flor) => flor.nombre);
+      const sigue = dentro.length ? ` ${dentro.join(" and ")} remains available.` : "";
+      return `${cuando} sits outside the optimal wholesale seasonal window for ${nombres} in NYC.${sigue}`;
+    }
+
+    function partir(total, cantidad) {
+      const base = Math.floor(total / cantidad);
+      const resto = total - base * cantidad;
+      return Array.from({ length: cantidad }, (_, indice) => base + (indice < resto ? 1 : 0));
+    }
+
+    const CATALOGO_BOTANICO = [
+      { clave: "rosa", popular: true, comun: "Rose", cientifico: "Rosa", alias: ["rose", "roses", "rosa"], hidratacion: "Recut under water, add flower food, and refresh the water every morning.", frio: "Hold the NYC workshop between 34°F and 36°F. Keep the cut away from fruit.", procesoBase: "Remove guard petals and leaves below the water line before the arrangement." },
+      { clave: "peonia", popular: true, comun: "Peony", cientifico: "Paeonia", alias: ["peony", "peonies", "peonia", "paeonia"], hidratacion: "Warm water until the bud opens. Then fresh water in a clean bucket.", frio: "Short cooler time, from 33°F to 35°F. Do not freeze the bud.", procesoBase: "Handle the bud gently and process the stems the same day they arrive." },
+      { clave: "hortensia", popular: true, comun: "Hydrangea", cientifico: "Hydrangea macrophylla", alias: ["hydrangea", "hydrangeas", "hortensia"], hidratacion: "Submerge them to the neck on arrival, then keep them in deep water.", frio: "Hydrate first, then store between 36°F and 38°F.", procesoBase: "Recut woody stems and sear or alum the cut if the head flags." },
+      { clave: "tulipan", popular: false, comun: "Tulip", cientifico: "Tulipa", alias: ["tulip", "tulips", "tulipan", "tulipa"], hidratacion: "A little water only. They keep drinking after they are cut.", frio: "Hold between 33°F and 35°F, away from ethylene and fruit.", procesoBase: "Leave the bulb scale off and wrap bunches so the stems stay straight." },
+      { clave: "orquidea", popular: false, comun: "Orchid", cientifico: "Phalaenopsis", alias: ["orchid", "orchids", "orquidea", "phalaenopsis"], hidratacion: "Do not submerge the crown. Refill the tube and check the level each day.", frio: "Orchids in the workshop hold between 50°F and 55°F.", procesoBase: "Keep the water tube on and avoid chilling the petals." },
+      { clave: "clavel", popular: false, comun: "Carnation", cientifico: "Dianthus caryophyllus", alias: ["carnation", "carnations", "clavel", "claveles", "dianthus", "dianthus caryophyllus"], hidratacion: "Recut on arrival and stand them in flower food. Refresh the solution every second day.", frio: "Store the bunches between 33°F and 35°F, clear of fruit and ethylene.", procesoBase: "Strip every leaf that would sit under water and process the lot the same day." },
+      { clave: "ranunculo", popular: false, comun: "Ranunculus", cientifico: "Ranunculus asiaticus", alias: ["ranunculus", "ranunculo"], hidratacion: "Start in cool water, then move to flower food once the heads firm up.", frio: "Store between 34°F and 36°F.", procesoBase: "Do not crush the hollow stem. Process in small lots." },
+    ];
+
+    function fichaBotanica(ficha) {
+      const proceso = ficha.proceso || ficha.procesoBase;
+      return `<article class="ficha-botanica">
+        <h4 class="serif text-3xl leading-none text-[#2C363F]">${escapar(ficha.comun)}</h4>
+        <p class="mt-1 text-sm italic text-[#3D434A]">${escapar(ficha.cientifico)}</p>
+        <div class="mt-4 space-y-3">
+          <div class="bloque-hidratacion">
+            <p class="text-sm font-medium text-[#2C363F]">💧 Hydration</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">${escapar(ficha.hidratacion)}</p>
+          </div>
+          <div class="bloque-frio">
+            <p class="text-sm font-medium text-[#2C363F]">🌡️ Cold Storage</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">${escapar(ficha.frio)}</p>
+          </div>
+          <div class="bloque-proceso">
+            <p class="text-sm font-medium text-[#2C363F]">⚠️ Processing Alert</p>
+            <p class="mt-1 text-sm leading-relaxed text-[#3D434A]">${escapar(proceso)}</p>
+          </div>
+        </div>
+      </article>`;
+    }
+
+    function coincideFicha(ficha, q) {
+      const campos = [ficha.comun, ficha.cientifico, ...ficha.alias].map((item) => plano(item));
+      return campos.some((campo) => campo.includes(q) || (campo.length >= 4 && q.includes(campo)));
+    }
+
+    function pintarCatalogo(consulta) {
+      const caja = document.getElementById("catalogo-resultado");
+      if (!caja) return;
+      const q = plano(consulta || "");
+      const lista = q
+        ? CATALOGO_BOTANICO.filter((ficha) => coincideFicha(ficha, q))
+        : CATALOGO_BOTANICO.filter((ficha) => ficha.popular);
+      caja.innerHTML = lista.length
+        ? lista.map(fichaBotanica).join("")
+        : `<p class="rounded-2xl bg-white px-4 py-5 text-sm text-[#3D434A]">No species matched that name. Try Rose, Peony, Hydrangea, Tulip, Orchid, or Carnation.</p>`;
+    }
+
+    function actualizarAlmacen(clave, mes) {
+      const ficha = CATALOGO_BOTANICO.find((item) => item.clave === clave);
+      if (!ficha) return;
+      const temporada = mes ? ` In ${MES_EN[mes]}, process the order the same day.` : "";
+      ficha.proceso = `${ficha.procesoBase}${temporada}`;
+      const campo = document.getElementById("buscador-botanico");
+      pintarCatalogo(campo ? campo.value : "");
+    }
+
+    function dinero(valor) {
+      return `$${Number(valor).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    function enlaceProveedor(nombre) {
+      const ruta = {
+        "Chelsea Cut Flowers": "#order/chelsea-cut-flowers",
+        "Midtown Stem Supply": "#order/midtown-stem-supply",
+        "Hunts Point Surplus": "#order/hunts-point-surplus",
+      }[nombre] || "#order";
+      return `<a class="enlace-proveedor" href="${ruta}">${escapar(nombre)}</a>`;
+    }
+
+    function filaTabla(variedad, proveedor, precio, tallos, subtotal) {
+      return `<tr>
+        <td>${escapar(variedad)}</td>
+        <td>${enlaceProveedor(proveedor)}</td>
+        <td class="text-right">${escapar(precio)}</td>
+        <td class="text-right font-medium">${escapar(tallos)}</td>
+        <td class="text-right font-medium">${escapar(subtotal)}</td>
+      </tr>`;
+    }
+
+    function tarjetaBanda(nombre, variedad, tallos) {
+      const estilo = ENCABEZADO[nombre];
+      const subtotal = Math.round(tallos * estilo.precio * 100) / 100;
+      const tarjeta = document.createElement("article");
+      tarjeta.className = `tarjeta-escenario banda-${nombre.toLowerCase()}`;
+      tarjeta.innerHTML = `
+        <header>
+          <p class="text-sm font-medium tracking-wide">${escapar(nombre)}</p>
+        </header>
+        <div class="cuerpo-tabla mesa-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Variety</th>
+                <th>Supplier</th>
+                <th class="text-right">Stem price</th>
+                <th class="text-right">Stems</th>
+                <th class="text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>${filaTabla(variedad, estilo.proveedor, dinero(estilo.precio), String(tallos), dinero(subtotal))}</tbody>
+          </table>
+        </div>
+      `;
+      return tarjeta;
+    }
+
+    function bloqueTexto(titulo, cuerpo) {
+      const tarjeta = document.createElement("article");
+      tarjeta.className = "tarjeta-asistente";
+      const encabezado = document.createElement("p");
+      encabezado.className = "font-medium text-[#2C363F]";
+      encabezado.textContent = titulo;
+      const detalle = document.createElement("div");
+      detalle.className = "mt-2 text-sm leading-relaxed text-[#3D434A]";
+      detalle.append(...cuerpo);
+      tarjeta.append(encabezado, detalle);
+      return tarjeta;
+    }
+
+    function lineaFija(html) {
+      const nodo = document.createElement("p");
+      nodo.innerHTML = html;
+      return nodo;
+    }
+
+    function bloqueDimension(mesas, variedad) {
+      const tallos = mesas * TALLOS_POR_MESA;
+      const dimension = document.createElement("div");
+      dimension.className = "flex flex-col gap-3";
+      const titulo = document.createElement("p");
+      titulo.className = "px-1 text-sm font-medium text-[#2C363F]";
+      titulo.textContent = "📊 Inventory Optimization & Sizing:";
+      const volumen = document.createElement("article");
+      volumen.className = "tarjeta-volumen";
+      volumen.innerHTML = `
+        <p class="text-[10px] font-medium tracking-[0.18em] text-[#9E3355] uppercase">Estimated volume</p>
+        <p class="serif mt-1 text-4xl leading-none text-[#2C363F]">~${tallos} stems</p>
+        <p class="mt-2 text-sm text-[#3D434A]">required for ${mesas} ${mesas === 1 ? "table" : "tables"}.</p>
+      `;
+      dimension.append(titulo, volumen);
+      ["Premium", "Standard", "Opportunity"].forEach((nombre) => {
+        dimension.appendChild(tarjetaBanda(nombre, variedad, tallos));
+      });
+      return dimension;
+    }
+
+    const LEXICO_FLORAL = [
+      "flower", "flowers", "floral", "bouquet", "arrangement", "centerpiece", "centrepiece",
+      "wedding", "gala", "stem", "stems", "wholesale", "runner", "tablescape",
+      "bride", "ceremony", "reception", "greenhouse", "premium", "standard", "opportunity",
+      "vase", "garland", "boutonniere", "corsage", "bloom", "blooms", "centerpieces", "aisle",
+    ];
+
+    function esSaludo(texto) {
+      const base = plano(texto).replace(/[^a-z\s]/g, "").replace(/\s+/g, " ").trim();
+      return /^(hi|hello|hey|good morning|good afternoon|good evening|thanks|thank you)$/.test(base);
+    }
+
+    function pideInspiracion(texto) {
+      const base = plano(texto);
+      return base.includes("don't know what to do")
+        || base.includes("dont know what to do")
+        || base.includes("do not know what to do")
+        || base.includes("need inspiration")
+        || base.includes("low budget");
+    }
+
+    function esFueraDeDominio(texto) {
+      const limpio = texto.trim();
+      if (!limpio) return false;
+      if (pideInspiracion(limpio) || esSaludo(limpio)) return false;
+      if (leerFlores(limpio).length || leerPresupuesto(limpio) > 0 || leerFecha(limpio).clave || leerMesas(limpio) > 0) return false;
+      const base = plano(limpio);
+      return !LEXICO_FLORAL.some((palabra) => base.includes(palabra));
+    }
+
+    function notaInspiracion() {
+      notaBroker([
+        bloqueTexto("✨ High-density design direction:", [
+          lineaFija("If the recipe is still open, build a low packed runner instead of a sparse centerpiece. One hero bloom carries the color, and a second layer fills every gap so the Manhattan table reads as a single cloud."),
+        ]),
+        bloqueTexto("💰 Opportunity band:", [
+          lineaFija("Add the cheap liquidation flowers from the Opportunity tier to optimize the budget. Carnations and overstock garden roses from Chelsea Flower Market keep the density, while Premium heads stay only where the eye lands."),
+        ]),
+      ]);
+    }
+
+    function notaFueraDeDominio() {
+      notaBroker("I only work the New York wholesale flower market. Share an event date, a budget, the stems you need, or a reference image, and I will compare Premium, Standard, and Opportunity.");
+    }
+
+    function tarjetaDesdeApi(fila) {
+      const banda = String(fila.tier || "").toLowerCase();
+      const tarjeta = document.createElement("article");
+      tarjeta.className = `tarjeta-escenario banda-${banda}`;
+      tarjeta.innerHTML = `
+        <header>
+          <p class="text-sm font-medium tracking-wide">${escapar(fila.tier)}</p>
+        </header>
+        <div class="cuerpo-tabla mesa-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Variety</th>
+                <th>Supplier</th>
+                <th class="text-right">Stem price</th>
+                <th class="text-right">Stems</th>
+                <th class="text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>${filaTabla(
+              fila.variety,
+              fila.supplier,
+              dinero(fila.unit_price_usd),
+              String(fila.stems),
+              dinero(fila.subtotal_usd),
+            )}</tbody>
+          </table>
+        </div>
+      `;
+      return tarjeta;
+    }
+
+    function fichaPorNombre(nombre) {
+      const q = plano(nombre || "");
+      if (!q) return null;
+      return CATALOGO_BOTANICO.find((item) => plano(item.comun) === q || item.clave === q || item.alias.includes(q)) || null;
+    }
+
+    function pintarAlmacenLateral(nombre, mesVisible) {
+      const ficha = fichaPorNombre(nombre);
+      const panel = document.getElementById("recomendaciones-almacen");
+      if (!ficha || !panel) return;
+      const mes = MES_ALIAS[plano(mesVisible || "")] || "";
+      const proceso = mes ? `${ficha.procesoBase} In ${MES_EN[mes]}, process the order the same day.` : ficha.procesoBase;
+      document.getElementById("almacen-especie").textContent = ficha.comun;
+      document.getElementById("almacen-cientifico").textContent = ficha.cientifico;
+      document.getElementById("almacen-hidratacion").textContent = ficha.hidratacion;
+      document.getElementById("almacen-frio").textContent = ficha.frio;
+      document.getElementById("almacen-proceso").textContent = proceso;
+      panel.classList.remove("hidden");
+    }
+
+    function nombreVisibleApi(nombre) {
+      const ficha = fichaPorNombre(nombre);
+      return ficha ? ficha.comun : String(nombre || "");
+    }
+
+    function contieneOrquidea(datos) {
+      const piezas = [
+        ...(datos.detected_flowers || []),
+        ...((datos.botanical && datos.botanical.species) || []),
+        datos.botanical && datos.botanical.primary_species,
+      ];
+      return piezas.some((item) => {
+        const q = plano(String(item || ""));
+        return q.includes("orchid") || q.includes("orquidea");
+      });
+    }
+
+    function esCotizacionValida(datos) {
+      if (!datos || typeof datos !== "object" || datos.type === "text" || datos.type === "message") return false;
+      const filas = Array.isArray(datos.financials) ? datos.financials : [];
+      const filasValidas = filas.filter((fila) => Number.isFinite(Number(fila.unit_price_usd)) && Number.isFinite(Number(fila.stems)));
+      if (filasValidas.length >= 3) return true;
+      const paquetes = datos.packages;
+      if (!paquetes || typeof paquetes !== "object") return false;
+      return ["Premium", "Standard", "Opportunity"].every((nombre) => {
+        const paquete = paquetes[nombre];
+        return paquete && Number.isFinite(Number(paquete.unit_price_USD)) && Number.isFinite(Number(paquete.allocated_stems));
+      });
+    }
+
+    function textoConversacional(datos) {
+      if (typeof datos === "string") return datos.trim();
+      if (datos && typeof datos.text === "string" && datos.text.trim()) return datos.text.trim();
+      if (datos && typeof datos.message === "string" && datos.message.trim()) return datos.message.trim();
+      if (datos && typeof datos.detail === "string" && datos.detail.trim()) return datos.detail.trim();
+      return "Share an estimated budget and a date, and I will price Premium, Standard, and Opportunity.";
+    }
+
+    function pintarRespuestaReal(datos) {
+      if (!esCotizacionValida(datos)) {
+        notaConversacional(textoConversacional(datos));
+        return;
+      }
+      const orquidea = contieneOrquidea(datos);
+      const crudas = (datos.botanical && datos.botanical.species && datos.botanical.species.length)
+        ? datos.botanical.species
+        : (datos.detected_flowers || []);
+      const nombres = crudas.map((nombre) => (orquidea && plano(String(nombre)).includes("orchid") ? "Orchid" : nombreVisibleApi(nombre)));
+      const estilo = (datos.aesthetic_style || (datos.botanical && datos.botanical.aesthetic_style) || "").trim();
+      const lista = document.createElement("ul");
+      lista.className = "list-disc space-y-1 pl-5";
+      (nombres.length ? nombres : ["No species confirmed in this photo."]).forEach((nombre) => {
+        const item = document.createElement("li");
+        item.textContent = nombre;
+        lista.appendChild(item);
+      });
+      const estiloNodo = document.createElement("p");
+      estiloNodo.className = "mt-2";
+      estiloNodo.textContent = estilo ? `Detected style: ${estilo}.` : "Style not specified.";
+      const alerta = document.createElement("p");
+      const demanda = datos.demand_alert || {};
+      alerta.textContent = datos.stock_status || demanda.alert || "Seasonal status was not returned.";
+      const sizing = datos.sizing || {};
+      const tallos = Number(sizing.total_stems) || 0;
+      const cantidad = Number(sizing.quantity) || 0;
+      const dimension = document.createElement("div");
+      dimension.className = "flex flex-col gap-3";
+      const titulo = document.createElement("p");
+      titulo.className = "px-1 text-sm font-medium text-[#2C363F]";
+      titulo.textContent = "📊 Inventory Optimization & Sizing:";
+      const volumen = document.createElement("article");
+      volumen.className = "tarjeta-volumen";
+      volumen.innerHTML = `
+        <p class="text-[10px] font-medium tracking-[0.18em] text-[#9E3355] uppercase">Estimated volume</p>
+        <p class="serif mt-1 text-4xl leading-none text-[#2C363F]">${tallos} stems</p>
+        <p class="mt-2 text-sm text-[#3D434A]">required for ${cantidad} ${cantidad === 1 ? "arrangement" : "arrangements"}.</p>
+      `;
+      dimension.append(titulo, volumen);
+      (datos.financials || []).forEach((fila) => {
+        const copia = { ...fila };
+        if (orquidea && plano(String(copia.variety || "")).includes("orchid")) copia.variety = "Orchid";
+        dimension.appendChild(tarjetaDesdeApi(copia));
+      });
+      notaBroker([
+        bloqueTexto("📸 Multimodal Identification Result:", [lista, estiloNodo]),
+        bloqueTexto("🗓️ NYC Seasonal Availability Check:", [alerta]),
+        dimension,
+      ]);
+      const especieCuidado = orquidea ? "orchid" : (datos.detected_flowers || [])[0];
+      if (especieCuidado) pintarAlmacenLateral(especieCuidado, demanda.month);
+    }
+
+    async function consultarDesk(texto, archivo, presupuesto) {
+      const cuerpo = new FormData();
+      cuerpo.append("message", texto);
+      cuerpo.append("max_budget", presupuesto > 0 ? String(presupuesto) : "");
+      const tallosPedidos = leerTallos(texto);
+      if (tallosPedidos > 0) cuerpo.append("required_stems", String(tallosPedidos));
+      if (archivo) cuerpo.append("file", archivo, archivo.name || "reference.jpg");
+      const espera = document.createElement("p");
+      espera.className = "px-1 text-sm text-[#3D434A]";
+      espera.textContent = "Reading the reference against the New York wholesale book…";
+      historial.appendChild(espera);
+      desplazarse();
+      document.getElementById("enviar").disabled = true;
+      try {
+        const respuesta = await fetch(API, { method: "POST", body: cuerpo });
+        const datos = await respuesta.json().catch(() => ({}));
+        espera.remove();
+        if (!respuesta.ok) {
+          const detalle = typeof datos.detail === "string" ? datos.detail : "The sourcing desk could not price this reference.";
+          notaConversacional(detalle);
+          return;
+        }
+        pintarRespuestaReal(datos);
+      } catch (error) {
+        espera.remove();
+        notaConversacional("The sourcing desk could not reach the local API. Check that the server is running on port 8000 and try again.");
+      } finally {
+        document.getElementById("enviar").disabled = false;
+      }
+    }
+
+    function pintarLectura(texto, conImagen) {
+      if (conImagen) return;
+      if (esFueraDeDominio(texto)) {
+        notaConversacional("I only work the New York wholesale flower market. Share an event date, a budget, the stems you need, or a reference image, and I will compare Premium, Standard, and Opportunity.");
+        return;
+      }
+      if (pideInspiracion(texto)) {
+        notaInspiracion();
+        return;
+      }
+      notaConversacional("Happy to help. Attach a reference image with your event date and budget, and I will prepare the wholesale packages.");
+    }
+
+    function mostrarArchivo(file) {
+      if (!file || !String(file.type || "").startsWith("image/")) return;
+      if (vistaPrevia.src) URL.revokeObjectURL(vistaPrevia.src);
+      archivoActual = file;
+      textoArchivo.textContent = file.name;
+      vistaPrevia.alt = `Preview of ${file.name}`;
+      vistaPrevia.src = URL.createObjectURL(file);
+      chipArchivo.classList.remove("hidden");
+      chipArchivo.classList.add("flex");
+    }
+
+    function quitarArchivo() {
+      if (vistaPrevia.src) URL.revokeObjectURL(vistaPrevia.src);
+      archivoActual = null;
+      vistaPrevia.removeAttribute("src");
+      textoArchivo.textContent = "";
+      chipArchivo.classList.add("hidden");
+      chipArchivo.classList.remove("flex");
+      document.getElementById("chat-file-input").value = "";
+    }
+
+    document.getElementById("boton-portada").addEventListener("click", () => mostrarPantalla("pantalla-onboarding"));
+    document.getElementById("boton-siguiente").addEventListener("click", () => {
+      if (slideActual < 2) mostrarSlide(slideActual + 1);
+      else mostrarPantalla("pantalla-login");
+    });
+    document.getElementById("boton-saltar").addEventListener("click", () => mostrarPantalla("pantalla-login"));
+    document.getElementById("formulario-login").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const correo = document.getElementById("correo-corporativo").value.trim();
+      const clave = document.getElementById("contrasena");
+      const aviso = document.getElementById("aviso-login");
+      if (!correo.includes("@") || !clave.value.trim()) {
+        aviso.textContent = "Use a corporate email and a password to open the desk.";
+        aviso.classList.remove("hidden");
+        return;
+      }
+      aviso.classList.add("hidden");
+      clave.value = "";
+      mostrarPantalla("pantalla-chat");
+    });
+    document.getElementById("boton-adjuntar").addEventListener("click", () => document.getElementById("chat-file-input").click());
+    document.getElementById("chat-file-input").addEventListener("change", () => mostrarArchivo(document.getElementById("chat-file-input").files[0]));
+    document.getElementById("boton-quitar-archivo").addEventListener("click", quitarArchivo);
+
+    document.getElementById("composer").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const campo = document.getElementById("mensaje");
+      const texto = campo.value.trim();
+      const entrada = document.getElementById("chat-file-input");
+      const archivo = (entrada.files && entrada.files[0]) || archivoActual;
+      if (!texto && !archivo) return;
+      const presupuesto = leerPresupuesto(texto);
+      burbujaUsuario(texto, archivo);
+      campo.value = "";
+      quitarArchivo();
+      consultarDesk(texto, archivo, presupuesto);
+    });
+
+    const panelCuenta = document.getElementById("panel-cuenta");
+    const botonCuenta = document.getElementById("boton-cuenta");
+
+    function cerrarCuenta() {
+      panelCuenta.classList.remove("is-abierto");
+      botonCuenta.setAttribute("aria-expanded", "false");
+    }
+
+    function cerrarSesion() {
+      cerrarCuenta();
+      document.querySelectorAll(".modal-capa.is-abierta").forEach((capa) => cerrarModal(capa.id));
+      document.getElementById("correo-corporativo").value = "";
+      document.getElementById("contrasena").value = "";
+      document.getElementById("aviso-login").classList.add("hidden");
+      document.getElementById("mensaje").value = "";
+      quitarArchivo();
+      historial.innerHTML = "";
+      mesaLista = false;
+      mostrarPantalla("pantalla-login");
+    }
+
+    function abrirModal(id) {
+      cerrarCuenta();
+      const capa = document.getElementById(id);
+      capa.classList.add("is-abierta");
+      capa.setAttribute("aria-hidden", "false");
+      if (id === "modal-guia") {
+        document.getElementById("buscador-botanico").focus();
+        return;
+      }
+      const cerrar = capa.querySelector(".boton-cerrar");
+      if (cerrar) cerrar.focus();
+    }
+
+    function cerrarModal(id) {
+      const capa = document.getElementById(id);
+      capa.classList.remove("is-abierta");
+      capa.setAttribute("aria-hidden", "true");
+    }
+
+    botonCuenta.addEventListener("click", () => {
+      const abierto = panelCuenta.classList.toggle("is-abierto");
+      botonCuenta.setAttribute("aria-expanded", abierto ? "true" : "false");
+    });
+    document.getElementById("boton-salir").addEventListener("click", cerrarSesion);
+    document.addEventListener("click", (event) => {
+      if (!document.getElementById("caja-cuenta").contains(event.target)) cerrarCuenta();
+    });
+    document.getElementById("boton-guia").addEventListener("click", () => abrirModal("modal-guia"));
+    document.getElementById("buscador-botanico").addEventListener("input", (event) => pintarCatalogo(event.target.value));
+    pintarCatalogo("");
+    document.getElementById("boton-tendencias").addEventListener("click", () => abrirModal("modal-tendencias"));
+    document.getElementById("modal-tendencias").addEventListener("click", (event) => {
+      const boton = event.target.closest("[data-oferta]");
+      if (!boton) return;
+      const nombre = boton.getAttribute("data-oferta");
+      const proveedor = boton.getAttribute("data-proveedor");
+      const precio = boton.getAttribute("data-precio");
+      cerrarModal("modal-tendencias");
+      notaBroker(`Opportunity tier updated. ${nombre} from ${proveedor} is in this sourcing chat at ${precio} per stem.`);
+      document.getElementById("mensaje").focus();
+    });
+    document.querySelectorAll("[data-cerrar]").forEach((boton) => {
+      boton.addEventListener("click", () => cerrarModal(boton.getAttribute("data-cerrar")));
+    });
+    document.querySelectorAll(".modal-capa").forEach((capa) => {
+      capa.addEventListener("click", (event) => {
+        if (event.target === capa) cerrarModal(capa.id);
+      });
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      cerrarCuenta();
+      document.querySelectorAll(".modal-capa.is-abierta").forEach((capa) => cerrarModal(capa.id));
+    });
+    document.getElementById("historial").addEventListener("click", (event) => {
+      const enlace = event.target.closest(".enlace-proveedor");
+      if (!enlace) return;
+      event.preventDefault();
+    });
+  </script>
+</body>
+</html>

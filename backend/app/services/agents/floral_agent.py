@@ -339,16 +339,15 @@ def aplicar_agente_critico(extraccion: ExtraccionFloral) -> ResultadoFloral:
         alerta = False
     else:
         detalle = []
+        temporada_visible = temporada[:1].upper() + temporada[1:]
         for item in sustitutos:
-            opciones = ", ".join(item.alternativas) if item.alternativas else "sin alternativa en catálogo"
+            alternativa = item.alternativas[0] if item.alternativas else "rosa"
+            flor = item.flor_solicitada[:1].upper() + item.flor_solicitada[1:]
+            opcion = alternativa[:1].upper() + alternativa[1:]
             detalle.append(
-                f"{item.flor_solicitada} no corresponde a {temporada}. "
-                f"Sustitutos estéticos: {opciones}."
+                f"⚠️ {flor} fuera de temporada para {temporada_visible}. Sustituida por {opcion}."
             )
-        mensaje = (
-            "Alerta de temporada: el Agente Crítico detiene el flujo de cotización. "
-            + " ".join(detalle)
-        )
+        mensaje = "\n".join(detalle)
         alerta = True
 
     return ResultadoFloral(
@@ -382,7 +381,11 @@ def analizar_solicitud(mensaje: str) -> ResultadoFloral:
                     "en español y minúsculas, cantidad entera; 0 si no hay número), "
                     "estilo_estetico breve y temporada_detectada (primavera, verano, "
                     "otoño, invierno, o 'no especificada'). No inventes especies que "
-                    "no estén en el texto y no calcules precios ni presupuestos."
+                    "no estén en el texto. No calcules precios, tallos, porcentajes ni "
+                    "presupuestos. No redactes la respuesta del chat: si una flor está "
+                    "fuera de temporada, la única frase permitida es "
+                    "'⚠️ {Flor} fuera de temporada para {Mes}. Sustituida por {Alternativa}.' "
+                    "Si todas están en temporada, no escribas esa línea."
                 ),
             },
             {"role": "user", "content": texto},

@@ -55,6 +55,89 @@ def _filas() -> list[dict]:
 
 df_inventario = pd.DataFrame(_filas())
 
+_VISIBLE = {
+    "rosa": "Rosa",
+    "orquidea": "Orquídea",
+    "peonia": "Peonía",
+    "ranunculo": "Ranúnculo",
+    "tulipan": "Tulipán",
+    "anemona": "Anémona",
+    "dalia": "Dalia",
+    "hortensia": "Hortensia",
+    "girasol": "Girasol",
+    "crisantemo": "Crisantemo",
+}
+_SUSTITUTOS = {
+    "peonia": ("ranunculo", "anemona", "tulipan", "rosa"),
+    "ranunculo": ("anemona", "tulipan", "rosa"),
+    "anemona": ("ranunculo", "tulipan", "rosa"),
+    "tulipan": ("ranunculo", "anemona", "rosa"),
+    "dalia": ("hortensia", "rosa", "girasol"),
+    "hortensia": ("dalia", "rosa"),
+    "girasol": ("dalia", "crisantemo", "rosa"),
+    "crisantemo": ("dalia", "rosa"),
+}
+
+
+def _clave(nombre: str) -> str:
+    import unicodedata
+
+    plano = unicodedata.normalize("NFKD", str(nombre).strip().lower())
+    return "".join(c for c in plano if not unicodedata.combining(c))
+
+
+def nombre_visible(especie: str) -> str:
+    clave = _clave(especie)
+    if clave in _VISIBLE:
+        return _VISIBLE[clave]
+    texto = str(especie).strip()
+    return texto[:1].upper() + texto[1:] if texto else texto
+
+
+def en_temporada(especie: str, mes: int, inventario: pd.DataFrame | None = None) -> bool:
+    origen = df_inventario if inventario is None else inventario
+    clave = _clave(especie)
+    filas = origen.loc[origen["especie"] == clave]
+    if filas.empty:
+        return False
+    return mes in filas.iloc[0]["meses"]
+
+
+def sustituto_en_temporada(especie: str, mes: int, inventario: pd.DataFrame | None = None) -> str | None:
+    """Primera alternativa del catálogo que sí está en temporada y se puede cotizar."""
+    clave = _clave(especie)
+    candidatos = _SUSTITUTOS.get(clave, ("rosa",))
+    for candidato in candidatos:
+        if candidato != clave and en_temporada(candidato, mes, inventario):
+            return candidato
+    if clave != "rosa" and en_temporada("rosa", mes, inventario):
+        return "rosa"
+    return None
+
+
+def ampliar_con_sustitutos(
+    flores_fuera: list[str],
+    mes: int,
+    filtrado: pd.DataFrame,
+    preferidas: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    """Suma al inventario cotizable una alternativa en temporada por cada flor fuera de estación."""
+    presentes = set(filtrado["especie"]) if not filtrado.empty else set()
+    pares: list[tuple[str, str]] = []
+    extras: list[str] = []
+    elegidas = preferidas or {}
+    for flor in flores_fuera:
+        alternativa = elegidas.get(flor) or sustituto_en_temporada(flor, mes)
+        if not alternativa:
+            continue
+        pares.append((flor, alternativa))
+        if alternativa not in presentes and alternativa not in extras:
+            extras.append(alternativa)
+    if extras:
+        extra = filtrar_inventario(extras, mes)
+        filtrado = pd.concat([filtrado, extra], ignore_index=True)
+    return filtrado, pares
+
 
 def filtrar_inventario(
     flores: list[str],

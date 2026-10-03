@@ -9,12 +9,25 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import os
 import unicodedata
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
+from openai import OpenAI
 from pydantic import BaseModel, Field, field_validator
+
+_log = logging.getLogger("bloomtrust.vision")
+_EMPTY_REQUIREMENTS = {
+    "detected_flowers": [],
+    "aesthetic_style": "",
+    "budget_provided": False,
+    "budget_amount": 0,
+    "event_date": "",
+}
+_VISION_MODEL = "gpt-4o-mini"
 
 PROMPT_AGENTE_CRITICO = """Eres el Agente Crítico visual de BloomTrust, plataforma B2B de abastecimiento floral para eventos en New York City.
 
@@ -28,7 +41,8 @@ Reglas obligatorias:
 - flores_detectadas: nombre común en español, minúsculas y sin acentos (rosa, orquidea, peonia). Si solo estás seguro del nombre en inglés, devuélvelo en minúsculas (peony) y no lo traduzcas.
 - paleta_colores: únicamente colores predominantes que aparecen en el diseño, en minúsculas y sin acentos.
 - estilo_estetico: una sola etiqueta corta del estilo visual observable (boho, minimalista, clasico, romantico, tropical, corporativo, jardin). No asignes un estilo que la imagen no muestre.
-- No calcules tallos, precios ni disponibilidad."""
+- No calcules tallos, precios ni disponibilidad.
+- No redactes la respuesta del chat ni porcentajes de demanda. Solo el esquema visual."""
 
 _ALIAS_FLOR = {
     "rose": "rosa",
@@ -261,3 +275,401 @@ def analizar_imagen(
     if analisis is None:
         raise RuntimeError("OpenAI no devolvió la salida estructurada del análisis visual.")
     return analisis
+
+
+_BOTANICO = {
+    "rosa": "rose",
+    "orquidea": "orchid",
+    "peonia": "peony",
+    "ranunculo": "ranunculus",
+    "tulipan": "tulip",
+    "anemona": "anemone",
+    "dalia": "dahlia",
+    "hortensia": "hydrangea",
+    "girasol": "sunflower",
+    "crisantemo": "chrysanthemum",
+}
+_SINGULAR = {
+    "peonies": "peony",
+    "roses": "rose",
+    "lilies": "lily",
+    "hydrangeas": "hydrangea",
+    "orchids": "orchid",
+    "tulips": "tulip",
+    "anemones": "anemone",
+    "dahlias": "dahlia",
+    "sunflowers": "sunflower",
+    "chrysanthemums": "chrysanthemum",
+    "ranunculuses": "ranunculus",
+}
+_CACHE_VECTORES: dict[str, dict[str, object]] = {}
+def _vision_prompt(today: date | None = None) -> str:
+    """Ask the model to flag a missing budget and resolve relative dates from today."""
+    hoy = (today or date.today()).isoformat()
+    return (
+        "You are the BloomTrust visual sourcing parser for the NYC wholesale market. "
+        f"Today is {hoy}. "
+        "Inspect the reference image when one is attached, and read the planner's message. "
+        "Return JSON with detected_flowers, aesthetic_style, budget_provided, budget_amount, and event_date. "
+        "detected_flowers is a list of singular lowercase English names such as rose, peony, or hydrangea. "
+        "Include only species that are clearly visible or explicitly named. "
+        "aesthetic_style is one short design label. "
+        "budget_provided is false and budget_amount is 0 when the planner writes 'no budget', "
+        "'I don't know the budget', leaves the budget blank, or gives no numeric amount. "
+        "Never invent a budget figure. "
+        "event_date is YYYY-MM-DD. When the planner writes a relative date such as 'in two weeks', "
+        f"'in 2 weeks', or 'next week', convert that phrase to an approximate date counted from {hoy}. "
+        "If no date is stated, return an empty event_date. "
+        "Do not calculate stems, package prices, or demand percentages."
+    )
+
+
+_PROMPT_PARSER = _vision_prompt()
+
+
+_FLORAL_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "floral_requirements",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "detected_flowers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Normalized lowercase flower names found in the photo.",
+                },
+                "aesthetic_style": {
+                    "type": "string",
+                    "description": "Design style visible in the reference image.",
+                },
+                "budget_provided": {
+                    "type": "boolean",
+                    "description": "False when the message has no numeric budget, including 'no budget' or 'I don't know the budget'.",
+                },
+                "budget_amount": {
+                    "type": "number",
+                    "description": "Numeric budget stated by the planner. Use 0 when none was provided. Do not invent one.",
+                },
+                "event_date": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD. Resolve relative phrases such as 'in two weeks' from today. Empty when no date was stated.",
+                },
+            },
+            "required": ["detected_flowers", "aesthetic_style", "budget_provided", "budget_amount", "event_date"],
+        },
+    },
+}
+
+
+def _cliente():
+    api_key, modelo, _temperatura = _configuracion()
+    return OpenAI(api_key=api_key, timeout=90.0), modelo
+
+
+def _etiqueta_botanica(nombre: str) -> str:
+    clave = _canon_flor(nombre)
+    if clave in _BOTANICO:
+        return _BOTANICO[clave]
+    token = _plano(nombre)
+    return _SINGULAR.get(token, token)
+
+
+def _singular_ingles(nombre: str) -> str:
+    token = _plano(nombre)
+    return _SINGULAR.get(token, token)
+
+
+def _similitud_coseno(origen: list[float], destino: list[float]) -> float:
+    if not origen or len(origen) != len(destino):
+        return 0.0
+    producto = norma_origen = norma_destino = 0.0
+    for izquierda, derecha in zip(origen, destino):
+        producto += izquierda * derecha
+        norma_origen += izquierda * izquierda
+        norma_destino += derecha * derecha
+    if norma_origen <= 0 or norma_destino <= 0:
+        return 0.0
+    return producto / ((norma_origen ** 0.5) * (norma_destino ** 0.5))
+
+
+class FloralRequirements(BaseModel):
+    """Strict vision schema. OpenAI must return only these keys."""
+
+    detected_flowers: list[str] = Field(
+        description="Flower names visible in the photo or named in the message, singular and lowercase."
+    )
+    aesthetic_style: str = Field(
+        description="One short label for the design style that is actually visible or stated."
+    )
+    budget_provided: bool = Field(
+        description="False when the planner gave no numeric budget."
+    )
+    budget_amount: float = Field(
+        description="Budget figure written by the planner, or 0 when it was not provided."
+    )
+    event_date: str = Field(
+        description="Resolved YYYY-MM-DD, or empty when the message has no date."
+    )
+
+    @field_validator("detected_flowers")
+    @classmethod
+    def _lowercase_flowers(cls, values: list[str]) -> list[str]:
+        return _unicos(_etiqueta_botanica(item) for item in values)
+
+    @field_validator("aesthetic_style", "event_date")
+    @classmethod
+    def _lowercase_style(cls, value: str) -> str:
+        return _plano(value) if value else ""
+
+    @field_validator("budget_amount")
+    @classmethod
+    def _budget_floor(cls, value: float) -> float:
+        return float(value) if value and value > 0 else 0.0
+
+
+def _openai_client():
+    """Official client. Reads OPENAI_API_KEY from the environment or the local .env."""
+    try:
+        _cargar_env()
+    except OSError:
+        _log.warning("Could not read the local .env file.")
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        _log.warning("OPENAI_API_KEY is not set. Floral vision was skipped.")
+        return None
+    return OpenAI(api_key=api_key, timeout=60.0)
+
+
+def _referencia_visual(imagen: str | bytes | None) -> str | None:
+    """Turn raw bytes or a Base64/data-URL/http reference into an image_url value."""
+    if imagen is None:
+        return None
+    if isinstance(imagen, (bytes, bytearray)):
+        if not imagen:
+            return None
+        payload = base64.b64encode(bytes(imagen)).decode("ascii")
+        return f"data:{_mime_desde_base64(payload)};base64,{payload}"
+    texto = str(imagen).strip()
+    if not texto:
+        return None
+    try:
+        return preparar_imagen(texto)
+    except ValueError:
+        _log.warning("The reference image was not a valid URL, data URL, or Base64 payload.")
+        return None
+
+
+def _contenido_vision(user_input_text: str, image_ref: str | None) -> str | list[dict]:
+    texto = (user_input_text or "").strip() or "Identify the flowers and the aesthetic style in this reference."
+    if not image_ref:
+        return texto
+    return [
+        {"type": "text", "text": texto},
+        {"type": "image_url", "image_url": {"url": image_ref}},
+    ]
+
+
+def extract_floral_requirements(
+    user_input_text: str,
+    image: str | bytes | None = None,
+    image_url: str | None = None,
+) -> dict:
+    """Read the planner message and an optional image, and return flowers plus style.
+
+    ``image`` accepts raw bytes or a Base64 string (also a data URL or http URL).
+    ``image_url`` is the same input under the previous parameter name.
+    A missing API key or a failed request returns an empty requirement set.
+    """
+    referencia = image if image is not None else image_url
+    texto = user_input_text or ""
+    image_ref = _referencia_visual(referencia)
+    if not texto.strip() and not image_ref:
+        return dict(_EMPTY_REQUIREMENTS)
+
+    cliente = _openai_client()
+    if cliente is None:
+        return dict(_EMPTY_REQUIREMENTS)
+
+    try:
+        completado = cliente.chat.completions.parse(
+            model=_VISION_MODEL,
+            temperature=0.1,
+            response_format=FloralRequirements,
+            messages=[
+                {"role": "system", "content": _PROMPT_PARSER},
+                {"role": "user", "content": _contenido_vision(texto, image_ref)},
+            ],
+        )
+        mensaje = completado.choices[0].message
+        if getattr(mensaje, "refusal", None) or mensaje.parsed is None:
+            _log.warning("OpenAI returned no structured floral requirements.")
+            return dict(_EMPTY_REQUIREMENTS)
+        analisis = mensaje.parsed
+        return _paquete_floral(analisis)
+    except Exception as exc:
+        _log.warning("Floral vision request failed: %s", type(exc).__name__)
+        return dict(_EMPTY_REQUIREMENTS)
+
+
+def _paquete_floral(analisis: FloralRequirements) -> dict:
+    return {
+        "detected_flowers": list(analisis.detected_flowers),
+        "aesthetic_style": analisis.aesthetic_style,
+        "budget_provided": bool(analisis.budget_provided and analisis.budget_amount > 0),
+        "budget_amount": analisis.budget_amount if analisis.budget_provided else 0,
+        "event_date": analisis.event_date,
+    }
+
+
+def extract_floral_requirements_from_image(image_bytes: bytes, chat_message: str) -> dict:
+    """Identify flowers in an uploaded image with gpt-4o-mini structured output.
+
+    ``image_bytes`` is the raw file the planner uploaded. The bytes are encoded
+    as Base64 so the vision model can read them. A connection failure, a missing
+    key, or an empty file returns an empty requirement set instead of raising.
+    """
+    if not isinstance(image_bytes, (bytes, bytearray)) or not image_bytes:
+        _log.warning("Floral vision skipped because the uploaded image was empty.")
+        return dict(_EMPTY_REQUIREMENTS)
+
+    try:
+        _cargar_env()
+    except OSError:
+        _log.warning("Could not read the local .env file.")
+        return dict(_EMPTY_REQUIREMENTS)
+
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        _log.warning("OPENAI_API_KEY is not set. Floral vision was skipped.")
+        return dict(_EMPTY_REQUIREMENTS)
+
+    encoded = base64.b64encode(bytes(image_bytes)).decode("ascii")
+    image_url = f"data:{_mime_desde_base64(encoded)};base64,{encoded}"
+    message = (chat_message or "").strip() or "Identify the flowers and the aesthetic style in this reference."
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=60.0)
+        completion = client.chat.completions.create(
+            model=_VISION_MODEL,
+            temperature=0.1,
+            response_format=_FLORAL_JSON_SCHEMA,
+            messages=[
+                {"role": "system", "content": _vision_prompt()},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": message},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        parsed = FloralRequirements.model_validate_json(content)
+        return _paquete_floral(parsed)
+    except Exception as exc:
+        _log.warning("OpenAI vision connection failed: %s", type(exc).__name__)
+        return dict(_EMPTY_REQUIREMENTS)
+
+
+def generate_botanical_knowledge_and_embeddings(flower_list: list[str]) -> "pd.DataFrame":
+    """Describe la geometría de cada flor y la convierte en un embedding."""
+    import pandas as pd
+
+    cliente, modelo = _cliente()
+    pendientes = [flor for flor in flower_list if flor not in _CACHE_VECTORES]
+    for flower in pendientes:
+        prompt = (
+            f"Provide a highly dense technical description of the '{flower}' flower focusing strictly "
+            "on its petal structure, volumetric size, and geometric shape in professional event arrangements. "
+            "One concise paragraph. Do not mention price, season, or availability."
+        )
+        desc = cliente.chat.completions.create(
+            model=modelo,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        ).choices[0].message.content or ""
+        emb = cliente.embeddings.create(
+            model="text-embedding-3-small",
+            input=desc,
+        ).data[0].embedding
+        _CACHE_VECTORES[flower] = {"flower_name": flower, "description": desc, "vector": emb}
+    registros = [_CACHE_VECTORES[flor] for flor in flower_list if flor in _CACHE_VECTORES]
+    return pd.DataFrame(registros)
+
+
+class BloomTrustSourcingEngine:
+    """Compara una flor fuera de temporada contra el stock que el inventario sí puede cotizar."""
+
+    def __init__(self, target_date: str):
+        from datetime import datetime
+
+        self.target_date = target_date
+        self.month = datetime.strptime(target_date, "%Y-%m-%d").month
+        self.df_market = None
+
+    def _asegurar_mercado(self):
+        if self.df_market is not None:
+            return
+        from app.services.market.inventory import df_inventario, en_temporada
+
+        especies = [
+            str(especie)
+            for especie in df_inventario["especie"].unique()
+            if en_temporada(str(especie), self.month)
+        ]
+        etiquetas = [_etiqueta_botanica(especie) for especie in especies]
+        frame = generate_botanical_knowledge_and_embeddings(etiquetas)
+        clave_por_nombre = {_etiqueta_botanica(especie): especie for especie in especies}
+        frame["clave"] = frame["flower_name"].map(clave_por_nombre)
+        self.df_market = frame.dropna(subset=["clave"])
+
+    def check_stock_and_match(self, requested_flower: str) -> dict:
+        """Si el calendario de NYC tiene la especie, la deja. Si no, elige el vector más cercano."""
+        from app.services.market.inventory import en_temporada
+
+        clave = _canon_flor(requested_flower)
+        etiqueta = _etiqueta_botanica(requested_flower)
+        if en_temporada(clave, self.month):
+            return {
+                "status": "IN_STOCK",
+                "final_flower": clave,
+                "score": 100.0,
+                "reason": "Available in regular stock wholesale.",
+            }
+
+        self._asegurar_mercado()
+        pool = self.df_market.loc[self.df_market["clave"] != clave]
+        if pool.empty:
+            return {
+                "status": "SUBSTITUTED",
+                "original_flower": clave,
+                "final_flower": "rosa",
+                "score": 0.0,
+                "reason": "Substituted with rose because no in-season vector was available.",
+            }
+
+        pedido = generate_botanical_knowledge_and_embeddings([etiqueta])
+        vector_pedido = list(pedido.iloc[0]["vector"])
+        puntajes = [_similitud_coseno(vector_pedido, list(vector)) for vector in pool["vector"]]
+        mejor = max(range(len(puntajes)), key=puntajes.__getitem__)
+        elegido = pool.iloc[mejor]
+        score = round(float(puntajes[mejor]) * 100, 2)
+        return {
+            "status": "SUBSTITUTED",
+            "original_flower": clave,
+            "final_flower": str(elegido["clave"]),
+            "score": score,
+            "reason": (
+                f"Substituted due to an aesthetic similarity score of {score}% "
+                "based on petal volume and geometry."
+            ),
+        }
+
+
+def coincidir_sustituto(requested_flower: str, mes: int) -> dict:
+    """Atajo para el mes del evento. La fecha solo fija el mes del calendario."""
+    return BloomTrustSourcingEngine(f"2026-{int(mes):02d}-15").check_stock_and_match(requested_flower)

@@ -8,6 +8,14 @@ Plataforma de optimización de presupuestos y análisis de abastecimiento floral
 
 ---
 
+## 🚀 Google Colab Notebook (Experimental EDA & Core Tools)
+
+> **🚀 Google Colab Notebook (Experimental EDA & Core Tools):** [https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing](https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing)
+
+Open this notebook to reproduce the experimental core, independent of the live desk. It contains the unsupervised semantic-proximity analysis using Cosine Similarity, the botanical embedding generator, and the analytical seasonal-demand predictor for exact dates at the Chelsea Flower Market in NYC.
+
+---
+
 ## 🏗️ Arquitectura del Repositorio
 Monorepo compuesto por un **Backend** (FastAPI + Uvicorn) y un **Frontend** que orquesta tres fuentes de datos: Catálogos de Distribuidores de NYC (datos de stock/precios), el SDK de OpenAI (Planificador, Crítico y Narrador del chat floral) y el motor determinista de cálculo de costos propio.
 
@@ -68,6 +76,10 @@ NYC_MARKET_REQUESTS_PER_MINUTE=75
 ---
 
 ## 🚀 Puesta en Marcha (Paso a Paso)
+
+Primero, reproduce el núcleo científico en Google Colab y, a continuación, ejecuta el notebook localmente. Este notebook abarca el análisis de proximidad semántica no supervisada (similitud de coseno), el generador de *embeddings* botánicos y el predictor de demanda estacional con fechas exactas para el Chelsea Flower Market de Nueva York.
+
+**🚀 Google Colab Notebook (Experimental EDA & Core Tools):** [https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing](https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing)
 
 ### 1. Backend (Instalación Local)
 ```bash

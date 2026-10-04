@@ -6,6 +6,8 @@ Plataforma de optimización de presupuestos y análisis de abastecimiento floral
 
 ⚠️ **BloomTrust es una herramienta de optimización logística y comercial de abastecimiento.** No asume directamente el transporte ni almacenamiento físico de las flores. Todo endpoint que devuelve una cotización o narrativa de costos va envuelto en un Envelope de cumplimiento de stock estacional.
 
+🌐 **Live Demo Marketplace Link (Vercel):** (https://bloomtrust-frontend.vercel.app/)
+
 ---
 
 ## 🚀 Google Colab Notebook (Experimental EDA & Core Tools)
@@ -89,13 +91,10 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 python -m app.db.seed          # Crea la base de datos con el catálogo de flores de NYC
 uvicorn app.main:app --reload --port 8000
-```
-*La API interactiva de documentación quedará lista en `http://localhost:8000/docs`.*
-
+'''
 ### 2. Frontend
 ```bash
 cd frontend
 npm install --force
 npm start
-```
-*La interfaz visual del chat interactivo para los event planners correrá en `http://localhost:4200`.*
+'''

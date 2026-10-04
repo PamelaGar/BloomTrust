@@ -1,19 +1,16 @@
-"""Motor determinista de costos de BloomTrust.
+"""Deterministic BloomTrust engines ported from the Colab notebook.
 
-El LLM no interviene. Cada banda compra tallos reales del inventario filtrado,
-descuenta la merma y, en Opportunity, consume primero el saldo excedente.
+The language model never prices a stem. Care, Manhattan trends, and the
+three commercial packages live here so the API can answer from the same
+dictionaries that were verified in the notebook.
 """
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
-from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 
-import pandas as pd
-
-BANDAS = ("Premium", "Standard", "Opportunity")
-_BANDA_INTERNA = {"Premium": "premium", "Standard": "standard", "Opportunity": "opportunity"}
-# Índice fijo del calendario social de NYC. No lo estima el modelo.
+# Fixed New York social calendar. The model does not estimate these percents.
 _PICO_DEMANDA_NYC = {
     1: 12,
     2: 15,
@@ -28,271 +25,6 @@ _PICO_DEMANDA_NYC = {
     11: 30,
     12: 36,
 }
-
-
-def _decimal(valor: float | int | str | Decimal) -> Decimal:
-    return Decimal(str(valor))
-
-
-def _dinero(valor: Decimal) -> float:
-    return float(valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-
-class BloomTrustCostEngine:
-    """Reparte `presupuesto_max` en tres bandas comerciales reproducibles."""
-
-    def __init__(self, target_flower: str | None = None, base_wholesale_price: float | None = None):
-        self.target_flower = target_flower or ""
-        self.base_price = None if base_wholesale_price is None else _decimal(base_wholesale_price)
-
-    def calcular(self, inventario: pd.DataFrame, presupuesto_max: float) -> dict[str, dict]:
-        presupuesto = _decimal(presupuesto_max).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if presupuesto <= 0:
-            raise ValueError("presupuesto_max debe ser mayor que cero.")
-
-        especies = sorted(set(inventario["especie"])) if not inventario.empty else []
-        asignaciones = _repartir(presupuesto, len(especies))
-        cupo = dict(zip(especies, asignaciones, strict=True))
-
-        return {
-            nombre: self._banda(nombre, inventario, cupo, presupuesto)
-            for nombre in BANDAS
-        }
-
-    def _banda(
-        self,
-        nombre: str,
-        inventario: pd.DataFrame,
-        cupo: dict[str, Decimal],
-        presupuesto: Decimal,
-    ) -> dict:
-        clave = _BANDA_INTERNA[nombre]
-        lineas: list[dict] = []
-        costo_total = Decimal("0")
-        tallos_comprados = 0
-        tallos_utiles = 0
-        merma_tallos = 0
-        saldo_usado = 0
-
-        for especie in cupo:
-            filas = inventario.loc[inventario["especie"] == especie]
-            oferta = _elegir_oferta(filas, clave)
-            linea, costo = _cotizar_linea(especie, oferta, cupo[especie], clave)
-            lineas.append(linea)
-            costo_total += costo
-            tallos_comprados += linea["tallos_comprados"]
-            tallos_utiles += linea["tallos_utiles"]
-            merma_tallos += linea["merma_tallos"]
-            saldo_usado += linea["saldo_excedente_usado"]
-
-        restante = presupuesto - costo_total
-        return {
-            "costo_total": _dinero(costo_total),
-            "presupuesto_max": _dinero(presupuesto),
-            "presupuesto_restante": _dinero(restante),
-            "tallos_comprados": tallos_comprados,
-            "tallos_utiles": tallos_utiles,
-            "merma_tallos": merma_tallos,
-            "saldo_excedente_usado": saldo_usado,
-            "lineas": lineas,
-        }
-
-    def generate_packages(self, max_budget: float, required_stems: int) -> dict:
-        """Escala un precio base en Premium, Standard y Opportunity sin intervenir el modelo."""
-        if self.base_price is None or self.base_price <= 0:
-            raise ValueError("base_wholesale_price debe ser mayor que cero.")
-        if required_stems < 0:
-            raise ValueError("required_stems no puede ser negativo.")
-        presupuesto = _decimal(max_budget).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if presupuesto <= 0:
-            raise ValueError("max_budget debe ser mayor que cero.")
-
-        premium_precio = self.base_price * Decimal("1.5")
-        standard_precio = self.base_price
-        opportunity_precio = self.base_price * Decimal("0.7")
-        premium_tallos = _tallos_por_precio(presupuesto, premium_precio)
-        standard_tallos = min(_tallos_por_precio(presupuesto, standard_precio), required_stems)
-        opportunity_tallos = _tallos_por_precio(presupuesto, opportunity_precio)
-
-        return {
-            "Premium": _paquete(
-                "Prioritizes maximum aesthetic volume & fresh high-end sourcing grading.",
-                premium_precio,
-                premium_tallos,
-                presupuesto,
-            ),
-            "Standard": _paquete(
-                "Perfect commercial equilibrium between baseline price and design fulfillment.",
-                standard_precio,
-                standard_tallos,
-                presupuesto,
-            ),
-            "Opportunity": _paquete(
-                "Leverages NYC wholesaler surplus & overstock. Maximum savings and high volume.",
-                opportunity_precio,
-                opportunity_tallos,
-                presupuesto,
-            ),
-        }
-
-
-def _tallos_por_precio(presupuesto: Decimal, precio: Decimal) -> int:
-    if precio <= 0:
-        return 0
-    return int((presupuesto / precio).to_integral_value(rounding=ROUND_FLOOR))
-
-
-def _paquete(concepto: str, precio: Decimal, tallos: int, presupuesto: Decimal) -> dict:
-    costo = (Decimal(tallos) * precio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return {
-        "tier_concept": concepto,
-        "unit_price_USD": _dinero(precio),
-        "allocated_stems": tallos,
-        "package_total_USD": _dinero(costo),
-        "remaining_budget_USD": _dinero(presupuesto - costo),
-    }
-
-
-def _repartir(presupuesto: Decimal, partes: int) -> list[Decimal]:
-    if partes <= 0:
-        return []
-    centavos = int((presupuesto * 100).to_integral_value(rounding=ROUND_HALF_UP))
-    base, resto = divmod(centavos, partes)
-    return [Decimal(base + (1 if indice < resto else 0)) / Decimal(100) for indice in range(partes)]
-
-
-def _elegir_oferta(filas: pd.DataFrame, banda: str) -> pd.Series | None:
-    if filas.empty or "banda" not in filas.columns:
-        return None
-    candidatas = filas.loc[filas["banda"] == banda]
-    if candidatas.empty:
-        return None
-    if banda == "premium":
-        return candidatas.sort_values(["precio_tallo", "proveedor"], ascending=[False, True]).iloc[0]
-    if banda == "opportunity":
-        con_saldo = candidatas.loc[candidatas["saldo_excedente"] > 0]
-        pool = con_saldo if not con_saldo.empty else candidatas
-        return pool.sort_values(["precio_tallo", "proveedor"], ascending=[True, True]).iloc[0]
-    ordenadas = candidatas.sort_values(["precio_tallo", "proveedor"], ascending=[True, True])
-    return ordenadas.iloc[(len(ordenadas) - 1) // 2]
-
-
-def _cotizar_linea(
-    especie: str,
-    oferta: pd.Series | None,
-    asignacion: Decimal,
-    banda: str,
-) -> tuple[dict, Decimal]:
-    if oferta is None:
-        return _linea_vacia(especie, asignacion), Decimal("0")
-
-    precio = _decimal(oferta["precio_tallo"])
-    merma = _decimal(oferta["merma"])
-    stock = int(oferta["stock"])
-    saldo = int(oferta["saldo_excedente"])
-    if precio <= 0 or stock <= 0:
-        return _linea_vacia(especie, asignacion, str(oferta["proveedor"]), precio), Decimal("0")
-
-    comprados = int(asignacion // precio)
-    comprados = min(comprados, stock)
-    if banda == "opportunity":
-        comprados = min(comprados, saldo)
-
-    merma_tallos = int((Decimal(comprados) * merma).to_integral_value(rounding=ROUND_HALF_UP))
-    if comprados > 0 and merma < 1 and merma_tallos >= comprados:
-        merma_tallos = comprados - 1
-    utiles = comprados - merma_tallos
-    costo = (Decimal(comprados) * precio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-    linea = {
-        "especie": especie,
-        "proveedor": str(oferta["proveedor"]),
-        "precio_tallo": _dinero(precio),
-        "oferta_disponible": True,
-        "tallos_comprados": comprados,
-        "tallos_utiles": utiles,
-        "merma_tallos": merma_tallos,
-        "saldo_excedente_usado": comprados if banda == "opportunity" else 0,
-        "costo": _dinero(costo),
-        "presupuesto_asignado": _dinero(asignacion),
-    }
-    return linea, costo
-
-
-def _linea_vacia(
-    especie: str,
-    asignacion: Decimal,
-    proveedor: str = "",
-    precio: Decimal = Decimal("0"),
-) -> dict:
-    return {
-        "especie": especie,
-        "proveedor": proveedor,
-        "precio_tallo": _dinero(precio),
-        "oferta_disponible": False,
-        "tallos_comprados": 0,
-        "tallos_utiles": 0,
-        "merma_tallos": 0,
-        "saldo_excedente_usado": 0,
-        "costo": 0.0,
-        "presupuesto_asignado": _dinero(asignacion),
-    }
-
-
-def porcentaje_demanda(mes: int) -> int:
-    """Porcentaje de alza del mes según el índice fijo de eventos en NYC."""
-    return _PICO_DEMANDA_NYC[mes]
-
-
-def _moneda(valor: float) -> str:
-    return f"${valor:,.2f}"
-
-
-def tabla_markdown(banda: dict, nombres: dict[str, str] | None = None) -> str:
-    """Tabla corta de una banda. El subtotal es el costo ya calculado por el motor."""
-    nombres = nombres or {}
-    filas = [
-        "| Variedad | Proveedor | Precio Tallo | Tallos | Subtotal |",
-        "| --- | --- | --- | --- | --- |",
-    ]
-    for linea in banda.get("lineas") or []:
-        if not linea.get("tallos_comprados"):
-            continue
-        especie = str(linea.get("especie") or "")
-        variedad = nombres.get(especie, especie[:1].upper() + especie[1:] if especie else "—")
-        filas.append(
-            "| {variedad} | {proveedor} | {precio} | {tallos} | {subtotal} |".format(
-                variedad=variedad,
-                proveedor=linea.get("proveedor") or "—",
-                precio=_moneda(float(linea.get("precio_tallo") or 0)),
-                tallos=int(linea["tallos_comprados"]),
-                subtotal=_moneda(float(linea.get("costo") or 0)),
-            )
-        )
-    return "\n".join(filas)
-
-
-def redactar_markdown(
-    bandas: dict | None,
-    mes_visible: str,
-    porcentaje: int,
-    avisos: list[str],
-    nombres: dict[str, str] | None = None,
-) -> str:
-    """Arma la respuesta del bróker: avisos de una línea, alerta de demanda y tres tablas."""
-    bloques: list[str] = []
-    if avisos:
-        bloques.append("\n".join(avisos))
-    bloques.append(
-        "📈 Alerta de Mercado: Se recomienda reservar tus tallos entre esta semana y la siguiente. "
-        f"La demanda aumentará un {porcentaje}% en {mes_visible} debido a picos estacionales de eventos en NYC."
-    )
-    if bandas:
-        for nombre in BANDAS:
-            bloques.append(f"**{nombre}**\n\n{tabla_markdown(bandas[nombre], nombres)}")
-    return "\n\n".join(bloques)
-
-
 _JUSTIFICACION_MES = {
     1: "Enero abre el calendario corporativo de Nueva York, con galas de inicio de año por encima de la base.",
     2: "Febrero concentra San Valentín y cenas privadas; la presión mayorista sube sobre la semana del 14.",
@@ -307,6 +39,321 @@ _JUSTIFICACION_MES = {
     11: "Noviembre suma festivos y cenas corporativas de cierre.",
     12: "Diciembre cierra con fiestas y eventos de fin de año.",
 }
+_CARE_ALIASES = {
+    "rose": "rose",
+    "roses": "rose",
+    "rosa": "rose",
+    "garden rose": "garden rose",
+    "garden roses": "garden rose",
+    "hydrangea": "hydrangea",
+    "hydrangeas": "hydrangea",
+    "hortensia": "hydrangea",
+    "orchid": "orchid",
+    "orchids": "orchid",
+    "orquidea": "orchid",
+    "lisianthus": "lisianthus",
+    "carnation": "carnation",
+    "carnations": "carnation",
+    "clavel": "carnation",
+    "baby_s_breath": "baby_s_breath",
+    "baby's breath": "baby_s_breath",
+    "babys breath": "baby_s_breath",
+    "gypsophila": "baby_s_breath",
+    "eucalyptus": "eucalyptus",
+    "eucalipto": "eucalyptus",
+}
+
+
+def porcentaje_demanda(mes: int) -> int:
+    """Published demand lift for a month on the fixed NYC event index."""
+    return _PICO_DEMANDA_NYC[mes]
+
+
+class BloomTrustCareEngine:
+    def __init__(self):
+        # Global Botanical Knowledge Base for B2B Post-Sourcing Conditioning
+        self.care_database = {
+            "rose": {
+                "scientific_name": "Rosa rubiginosa",
+                "hydration": "Clean bucket with high-acidity water and standard floral commercial food nutrients.",
+                "temperature": "34°F - 38°F (1°C - 3°C) for stabilization.",
+                "alert": "Remove lower foliage entirely before immersion to prevent extreme microbial shrink.",
+            },
+            "garden rose": {
+                "scientific_name": "Rosa centifolia",
+                "hydration": "Warm water initial shock, then transfer to cold hydration with high glucose sugars.",
+                "temperature": "36°F - 40°F (2°C - 4°C) to slow petal opening.",
+                "alert": "Very delicate petals; do not mist directly or physical bruising mermas will trigger.",
+            },
+            "hydrangea": {
+                "scientific_name": "Hydrangea macrophylla",
+                "hydration": "Alum powder stem dip treatment. Submerge heavy dense blooms completely for 30 mins if flagging.",
+                "temperature": "38°F - 42°F (3°C - 5°C) inside the workshop cold-room.",
+                "alert": "High transpiration rate. Stems require deep vertical cross-cuts for massive water intake.",
+            },
+            "orchid": {
+                "scientific_name": "Phalaenopsis amabilis",
+                "hydration": "Hydrate in shallow, room-temperature fresh water. Avoid heavy industrial processing solutions.",
+                "temperature": "50°F - 55°F (10°C - 13°C). CRITICAL: Do NOT store in standard low-temperature coolers.",
+                "alert": "Extreme cold sensitivity will cause translucent petal rot. Keep high ambient humidity.",
+            },
+            "lisianthus": {
+                "scientific_name": "Eustoma russellianum",
+                "hydration": "Standard fresh conditioning with antibacterial agents. Requires frequent water rotations.",
+                "temperature": "36°F - 38°F (2°C - 3°C) for maximum node stiffness.",
+                "alert": "Stems are structurally brittle at junctions. Handle with high geometric care during unpacking.",
+            },
+            "carnation": {
+                "scientific_name": "Dianthus caryophyllus",
+                "hydration": "Highly resilient. Standard wholesale water conditioning with minimal nutrient overhead.",
+                "temperature": "34°F - 36°F (1°C - 2°C) for prolonged storage windows.",
+                "alert": "Keep strictly away from ethylene gas emitters like ripening fruits or logistics exhaust.",
+            },
+            "baby_s_breath": {
+                "scientific_name": "Gypsophila paniculata",
+                "hydration": "Recut stems under water and condition in a clean bucket with commercial flower food.",
+                "temperature": "34°F - 36°F (1°C - 2°C). Keep the clouds dry; do not mist the florets.",
+                "alert": "Ethylene sensitive. Store away from ripening fruit and keep the bunches loose so the stems do not mold.",
+            },
+            "eucalyptus": {
+                "scientific_name": "Eucalyptus cinerea",
+                "hydration": "Split woody stem ends and condition in warm water, then move the bucket to the cooler.",
+                "temperature": "36°F - 38°F (2°C - 3°C) with the foliage kept out of the water line.",
+                "alert": "Leaves left underwater slime the bucket. Strip submerged foliage before the cold room.",
+            },
+        }
+
+    def query_botanical_guide(self, flower_query: str) -> dict:
+        """Acts as the underlying search engine for the Storage UI catalog layer."""
+        clean_query = (flower_query or "").lower().strip()
+        key = _CARE_ALIASES.get(clean_query, clean_query)
+        return self.care_database.get(key, {
+            "scientific_name": "Unknown Especies",
+            "hydration": "Standard hydration with fresh water treatment.",
+            "temperature": "36°F - 40°F baseline range.",
+            "alert": "Handle with standard professional florist protocols.",
+        })
+
+
+class BloomTrustTrendsEngine:
+    def __init__(self):
+        # Live NYC Hospitality & Runway Design Feed Data Structure
+        self.current_trends = {
+            "headline": "LIVE MANHATTAN TRENDS: MONOCHROMATIC DENSITY & STRUCTURED ANTHURIMS DOMINATING WALL STREET GALAS",
+            "featured_items": [
+                {
+                    "style": "Classic Luxury Runner",
+                    "flower": "garden rose",
+                    "visual_reference": "https://unsplash.com",
+                    "offer_justification": "Chelsea Market Liquidation: 30% OFF overstock due to immediate greenhouse surplus imports.",
+                },
+                {
+                    "style": "Minimalist Exotic Clean",
+                    "flower": "orchid",
+                    "visual_reference": "https://unsplash.com",
+                    "offer_justification": "Midtown Surplus Event: Wholesale overstock lots available for immediate local delivery.",
+                },
+            ],
+        }
+
+    def get_live_market_feed(self) -> dict:
+        return self.current_trends
+
+
+class BloomTrustCostEngine:
+    def __init__(self, target_flower: str, base_wholesale_price: float):
+        self.target_flower = target_flower
+        self.base_price = base_wholesale_price
+
+    def generate_packages(self, max_budget: float | None, required_stems: int) -> dict:
+        """Price three tiers. No cap bills the full stem count; a budget caps each band with min()."""
+        if self.base_price is None or self.base_price <= 0:
+            raise ValueError("base_wholesale_price debe ser mayor que cero.")
+        if required_stems < 0:
+            raise ValueError("required_stems no puede ser negativo.")
+
+        stems = int(required_stems)
+        premium_stem_price = self.base_price * 1.5
+        standard_stem_price = self.base_price * 1.0
+        opportunity_stem_price = self.base_price * 0.7
+        open_quote = max_budget is None or float(max_budget) <= 0
+
+        if open_quote:
+            premium_final_stems = stems
+            standard_final_stems = stems
+            opportunity_final_stems = stems
+            budget_for_remainder = 0.0
+        else:
+            budget_for_remainder = float(max_budget)
+            premium_final_stems = min(math.floor(budget_for_remainder / premium_stem_price), stems)
+            standard_final_stems = min(math.floor(budget_for_remainder / standard_stem_price), stems)
+            opportunity_final_stems = min(math.floor(budget_for_remainder / opportunity_stem_price), stems)
+
+        premium_total_cost = premium_final_stems * premium_stem_price
+        standard_total_cost = standard_final_stems * standard_stem_price
+        opportunity_total_cost = opportunity_final_stems * opportunity_stem_price
+
+        def remaining(cost: float) -> float:
+            if open_quote:
+                return 0.0
+            return round(budget_for_remainder - cost, 2)
+
+        return {
+            "Premium": {
+                "tier_concept": "Prioritizes maximum aesthetic volume & superior grading sorting.",
+                "unit_price_USD": round(premium_stem_price, 2),
+                "allocated_stems": premium_final_stems,
+                "package_total_USD": round(premium_total_cost, 2),
+                "remaining_budget_USD": remaining(premium_total_cost),
+            },
+            "Standard": {
+                "tier_concept": "Perfect commercial equilibrium between price and design fulfillment.",
+                "unit_price_USD": round(standard_stem_price, 2),
+                "allocated_stems": standard_final_stems,
+                "package_total_USD": round(standard_total_cost, 2),
+                "remaining_budget_USD": remaining(standard_total_cost),
+            },
+            "Opportunity": {
+                "tier_concept": "Leverages wholesaler surplus. Maximum savings on immediate overstock liquidation.",
+                "unit_price_USD": round(opportunity_stem_price, 2),
+                "allocated_stems": opportunity_final_stems,
+                "package_total_USD": round(opportunity_total_cost, 2),
+                "remaining_budget_USD": remaining(opportunity_total_cost),
+            },
+        }
+
+    @classmethod
+    def price_from_accumulated_total(
+        cls,
+        max_budget: float | None,
+        total_base_price: float,
+        total_stems: int,
+    ) -> dict:
+        """Turn one summed recipe cost into Premium, Standard and Opportunity.
+
+        total_base_price already includes every species. Standard uses it as-is.
+        Premium is 1.5 times that sum and Opportunity is 0.7 times that sum.
+        """
+        base = float(total_base_price)
+        stems = int(total_stems)
+        if base <= 0:
+            raise ValueError("total_base_price debe ser mayor que cero.")
+        if stems <= 0:
+            raise ValueError("total_stems debe ser mayor que cero.")
+        open_quote = max_budget is None or float(max_budget) <= 0
+        budget_for_remainder = 0.0 if open_quote else float(max_budget)
+        concepts = {
+            "Premium": "Prioritizes maximum aesthetic volume & superior grading sorting.",
+            "Standard": "Perfect commercial equilibrium between price and design fulfillment.",
+            "Opportunity": "Leverages wholesaler surplus. Maximum savings on immediate overstock liquidation.",
+        }
+        packages = {}
+        for name, multiplier in (("Premium", 1.5), ("Standard", 1.0), ("Opportunity", 0.7)):
+            full_cost = base * multiplier
+            if open_quote or full_cost <= budget_for_remainder:
+                allocated = stems
+                cost = full_cost
+            else:
+                allocated = min(stems, math.floor(stems * budget_for_remainder / full_cost))
+                cost = full_cost * allocated / stems if stems else 0.0
+            unit = round(cost / allocated, 2) if allocated else round((base / stems) * multiplier, 2)
+            remaining = 0.0 if open_quote else round(budget_for_remainder - cost, 2)
+            packages[name] = {
+                "tier_concept": concepts[name],
+                "unit_price_USD": unit,
+                "allocated_stems": allocated,
+                "package_total_USD": round(cost, 2),
+                "remaining_budget_USD": remaining,
+            }
+        return packages
+
+    @classmethod
+    def quote_recipe(
+        cls,
+        max_budget: float | None,
+        arrangements_quantity: int,
+        items: list[dict],
+        unit_prices: dict[str, float],
+    ) -> dict:
+        """Sum a mixed recipe. Each line is stems per arrangement times the arrangement count.
+
+        unit_prices are the Standard wholesale figures already looked up. This method
+        only multiplies them by 1.5, 1.0, and 0.7. It does not invent a price.
+        """
+        arrangements = int(arrangements_quantity)
+        if arrangements <= 0:
+            raise ValueError("arrangements_quantity debe ser mayor que cero.")
+        total_base_price = 0.0
+        total_stems = 0
+        lines = []
+        for item in list(items):
+            name = str(item.get("flower_name") or "").strip().lower()
+            per = int(item.get("stems_per_arrangement") or 0)
+            if not name or per <= 0:
+                continue
+            if name not in unit_prices:
+                raise ValueError(f"No hay precio mayorista para {name}.")
+            item_base_price = float(unit_prices[name])
+            if item_base_price <= 0:
+                raise ValueError(f"El precio de {name} debe ser mayor que cero.")
+            item_total_stems = per * arrangements
+            total_base_price += item_base_price * item_total_stems
+            total_stems += item_total_stems
+            lines.append({
+                "flower_name": name,
+                "stems_per_arrangement": per,
+                "base": item_base_price,
+                "total_stems": item_total_stems,
+            })
+        if not lines or total_base_price <= 0:
+            raise ValueError("La receta no tiene tallos.")
+
+        open_quote = max_budget is None or float(max_budget) <= 0
+        multipliers = (("Premium", 1.5), ("Standard", 1.0), ("Opportunity", 0.7))
+        concepts = {
+            "Premium": "Prioritizes maximum aesthetic volume & superior grading sorting.",
+            "Standard": "Perfect commercial equilibrium between price and design fulfillment.",
+            "Opportunity": "Leverages wholesaler surplus. Maximum savings on immediate overstock liquidation.",
+        }
+
+        def band(name: str, multiplier: float) -> dict:
+            arrangement_cost = sum(item["stems_per_arrangement"] * item["base"] * multiplier for item in lines)
+            if open_quote:
+                count = arrangements
+                budget_for_remainder = 0.0
+            else:
+                budget_for_remainder = float(max_budget)
+                affordable = math.floor(budget_for_remainder / arrangement_cost) if arrangement_cost > 0 else 0
+                count = min(max(affordable, 0), arrangements)
+            detail = []
+            total_stems = 0
+            total_cost = 0.0
+            for item in lines:
+                stems = item["stems_per_arrangement"] * count
+                subtotal = stems * item["base"] * multiplier
+                total_stems += stems
+                total_cost += subtotal
+                detail.append({
+                    "flower_name": item["flower_name"],
+                    "stems_per_arrangement": item["stems_per_arrangement"],
+                    "total_stems": stems,
+                    "unit_price_usd": round(item["base"] * multiplier, 2),
+                    "subtotal_usd": round(subtotal, 2),
+                })
+            blended = round(total_cost / total_stems, 2) if total_stems else 0.0
+            remaining = 0.0 if open_quote else round(budget_for_remainder - total_cost, 2)
+            return {
+                "tier_concept": concepts[name],
+                "unit_price_USD": blended,
+                "allocated_stems": total_stems,
+                "package_total_USD": round(total_cost, 2),
+                "remaining_budget_USD": remaining,
+                "arrangements_quoted": count,
+                "lines": detail,
+            }
+
+        packages = {name: band(name, multiplier) for name, multiplier in multipliers}
+        return {"packages": packages, "arrangements_quantity": arrangements}
 
 
 class BloomTrustPredictiveForecaster:
@@ -363,3 +410,121 @@ class BloomTrustVolumeEstimator:
             "stem_breakdown": calculated_stems,
             "total_stems": sum(calculated_stems.values()),
         }
+
+
+class BloomTrustDesignConsultant:
+    """Names one complementary botanical. Prices stay outside this class."""
+
+    _CATALOG = {
+        "italian ruscus": {
+            "species": "Italian Ruscus",
+            "image_url": "https://images.unsplash.com/photo-1632232812783-c774e55bbbe9?auto=format&fit=crop&w=1400&q=80",
+            "unsplash_page": "https://unsplash.com/photos/a-close-up-of-a-bush-with-green-leaves-1L0kxXvXyj4",
+        },
+        "eucalyptus": {
+            "species": "Eucalyptus",
+            "image_url": "https://images.unsplash.com/photo-1744744041774-4485eb2492ec?auto=format&fit=crop&w=1400&q=80",
+            "unsplash_page": "https://unsplash.com/photos/eucalyptus-leaves-curve-gracefully-against-a-cream-background-p3P4d6jSNUc",
+        },
+        "lisianthus": {
+            "species": "Lisianthus",
+            "image_url": "https://images.unsplash.com/photo-1617630970477-535b975bec53?auto=format&fit=crop&w=1400&q=80",
+            "unsplash_page": "https://unsplash.com/photos/pink-and-white-roses-in-bloom-during-daytime-vJxeOtFyBPo",
+        },
+    }
+
+    def catalog_entry(self, species: str) -> dict:
+        folded = (species or "").lower().strip()
+        for key, entry in self._CATALOG.items():
+            if key in folded or folded in key:
+                return dict(entry)
+        return dict(self._CATALOG["eucalyptus"])
+
+    def _respaldo(self, hero_species: str) -> dict:
+        folded = (hero_species or "").lower()
+        if "ruscus" in folded:
+            chosen = "Eucalyptus"
+        elif "eucalyptus" in folded:
+            chosen = "Lisianthus"
+        elif "lisianthus" in folded or "eustoma" in folded:
+            chosen = "Italian Ruscus"
+        else:
+            chosen = "Eucalyptus"
+        entry = self.catalog_entry(chosen)
+        entry["advice"] = (
+            f"{entry['species']} is the complementary lot I would place beside the hero bloom. "
+            "Its texture keeps a New York table from reading flat, and the Chelsea bench can "
+            "add it as greenery or a white-adjacent filler without changing the main flower."
+        )
+        return entry
+
+    def generate_styling_advice(self, message: str, hero_species: str = "") -> dict:
+        """Ask gpt-4o-mini for one catalog species, then attach that plant's Unsplash photo."""
+        respaldo = self._respaldo(hero_species)
+        try:
+            import os
+
+            from openai import OpenAI
+
+            from app.services.agents.multimodal_agent import _VISION_MODEL, _cargar_env
+
+            _cargar_env()
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        except OSError:
+            return respaldo
+        if not api_key:
+            return respaldo
+        system = (
+            "You are the BloomTrust design consultant for the Chelsea Flower Market in New York. "
+            "Recommend exactly one complementary greenery or filler. "
+            "Return JSON with advice and species. "
+            "species must be exactly one of: Italian Ruscus, Eucalyptus, Lisianthus. "
+            "Italian Ruscus maps to its Unsplash botanical photograph, "
+            "Eucalyptus maps to its Unsplash botanical photograph, "
+            "and Lisianthus maps to its Unsplash botanical photograph. "
+            "Do not invent another species and do not invent an image URL. "
+            "advice is two or three English sentences on how that plant supports the event design. "
+            "Do not calculate prices or stem counts. "
+            "If the planner already named the hero flower, choose a different complement."
+        )
+        user = f"Hero flower: {hero_species or 'unspecified'}\nPlanner note:\n{message or 'The planner wants floral inspiration.'}"
+        try:
+            client = OpenAI(api_key=api_key, timeout=30.0)
+            completion = client.chat.completions.create(
+                model=_VISION_MODEL,
+                temperature=0.4,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "styling_advice",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "advice": {"type": "string"},
+                                "species": {
+                                    "type": "string",
+                                    "enum": ["Italian Ruscus", "Eucalyptus", "Lisianthus"],
+                                },
+                            },
+                            "required": ["advice", "species"],
+                        },
+                    },
+                },
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            import json
+
+            crudo = json.loads(completion.choices[0].message.content or "{}")
+        except Exception:
+            return respaldo
+        advice = str(crudo.get("advice") or "").strip()
+        if not advice or "low packed runner" in advice.lower():
+            return respaldo
+        entry = self.catalog_entry(str(crudo.get("species") or ""))
+        entry["advice"] = advice
+        return entry

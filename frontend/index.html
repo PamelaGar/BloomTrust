@@ -2173,8 +2173,10 @@
         last4: digitos.slice(-4),
         expiry: vence,
       });
+      event.currentTarget.reset();
       document.getElementById("correo-corporativo").value = correo;
       cerrarModal("modal-registro");
+      mostrarAviso("💳 Corporate Payment Method Verified Successful! Membership status: Active. You now have full B2B institutional access to the Chelsea Flower Market sourcing desk.", 6800);
     });
     document.getElementById("boton-adjuntar").addEventListener("click", () => document.getElementById("chat-file-input").click());
     document.getElementById("chat-file-input").addEventListener("change", () => mostrarArchivo(document.getElementById("chat-file-input").files[0]));

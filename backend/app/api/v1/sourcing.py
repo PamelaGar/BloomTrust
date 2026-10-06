@@ -532,7 +532,7 @@ def _financial_rows(variety: str, packages: dict) -> list[dict]:
     return rows
 
 
-@router.post("/analyze-event")
+@router.post("/analyze-event", redirect_slashes=False))
 async def analyze_event(
     file: UploadFile | None = File(None),
     max_budget: str = Form("", description="Maximum event budget in USD. Empty when the planner has no figure."),

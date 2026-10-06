@@ -112,7 +112,7 @@ from app.api.v1.sourcing import router as sourcing_router
 # app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["chat"])
-app.include_router(sourcing_router, prefix="/api/v1/sourcing", tags=["sourcing"])
+app.include_router(sourcing_router, prefix="", tags=["sourcing"])
 
 
 @app.get("/")

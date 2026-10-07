@@ -90,7 +90,6 @@ pip install -e ".[dev]"
 python -m app.db.seed          # Crea la base de datos con el catálogo de flores de NYC
 uvicorn app.main:app --reload --port 8000
 ```
-*La API interactiva de documentación quedará lista en `http://localhost:8000/docs`.*
 
 ### 2. Frontend
 ```bash
@@ -98,4 +97,3 @@ cd frontend
 npm install --force
 npm start
 ```
-*La interfaz visual del chat interactivo para los event planners correrá en `http://localhost:4200`.*

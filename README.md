@@ -6,8 +6,6 @@ Plataforma de optimización de presupuestos y análisis de abastecimiento floral
 
 ⚠️ **BloomTrust es una herramienta de optimización logística y comercial de abastecimiento.** No asume directamente el transporte ni almacenamiento físico de las flores. Todo endpoint que devuelve una cotización o narrativa de costos va envuelto en un Envelope de cumplimiento de stock estacional.
 
-🌐 **Live Demo Marketplace Link (Vercel):** (https://bloomtrust-frontend.vercel.app/)
-
 ---
 
 ## 🚀 Google Colab Notebook (Experimental EDA & Core Tools)
@@ -79,7 +77,7 @@ NYC_MARKET_REQUESTS_PER_MINUTE=75
 
 ## 🚀 Puesta en Marcha (Paso a Paso)
 
-Primero, reproduce el núcleo científico en Google Colab y, a continuación, ejecuta el notebook localmente. Este notebook abarca el análisis de proximidad semántica no supervisada (similitud de coseno), el generador de *embeddings* botánicos y el predictor de demanda estacional con fechas exactas para el Chelsea Flower Market de Nueva York.
+Reproduce the scientific core first in Google Colab, then run the desk locally. The notebook is the unsupervised semantic-proximity analysis (Cosine Similarity), the botanical embedding generator, and the exact-date seasonal demand predictor for the Chelsea Flower Market in NYC.
 
 **🚀 Google Colab Notebook (Experimental EDA & Core Tools):** [https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing](https://colab.research.google.com/drive/1pSiN9Ga6sNYzlLpIdQUR8FG4OyQT88kD?usp=sharing)
 
@@ -91,10 +89,13 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 python -m app.db.seed          # Crea la base de datos con el catálogo de flores de NYC
 uvicorn app.main:app --reload --port 8000
-'''
+```
+*La API interactiva de documentación quedará lista en `http://localhost:8000/docs`.*
+
 ### 2. Frontend
 ```bash
 cd frontend
 npm install --force
 npm start
-'''
+```
+*La interfaz visual del chat interactivo para los event planners correrá en `http://localhost:4200`.*

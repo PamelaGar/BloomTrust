@@ -22,6 +22,8 @@ from pydantic import BaseModel, Field, field_validator
 _log = logging.getLogger("bloomtrust.vision")
 _EMPTY_REQUIREMENTS = {
     "detected_flowers": [],
+    "arrangements_quantity": 0,
+    "items": [],
     "aesthetic_style": "",
     "budget_provided": False,
     "budget_amount": 0,
@@ -310,9 +312,24 @@ def _vision_prompt(today: date | None = None) -> str:
         "You are the BloomTrust visual sourcing parser for the NYC wholesale market. "
         f"Today is {hoy}. "
         "Inspect the reference image when one is attached, and read the planner's message. "
-        "Return JSON with detected_flowers, aesthetic_style, budget_provided, budget_amount, and event_date. "
-        "detected_flowers is a list of singular lowercase English names such as rose, peony, or hydrangea. "
-        "Include only species that are clearly visible or explicitly named. "
+        "Return JSON with arrangements_quantity, items, aesthetic_style, detected_flowers, "
+        "budget_provided, budget_amount, and event_date. "
+        "items is the nested recipe. Each object is "
+        "{flower_name, stems_per_arrangement}. "
+        "Example: {\"arrangements_quantity\": 5, \"items\": ["
+        "{\"flower_name\": \"orchid\", \"stems_per_arrangement\": 2}, "
+        "{\"flower_name\": \"baby_s_breath\", \"stems_per_arrangement\": 2}, "
+        "{\"flower_name\": \"eucalyptus\", \"stems_per_arrangement\": 4}"
+        "], \"aesthetic_style\": \"style_name\"}. "
+        "You must be 100% tolerant to typos. If the user writes 'orquid', 'orquids', or 'orquideas', "
+        "you must normalize it strictly to 'orchid' in the output array. "
+        "flower_name is a singular lowercase token. Use baby_s_breath for baby's breath and eucalyptus for eucalyptus. "
+        "stems_per_arrangement is the count for one arrangement, not the event total. "
+        "Return every species the planner named, in the same order, with none skipped. "
+        "When the message names an orchid (including the typos above), baby's breath, and eucalyptus, "
+        "items must contain orchid, then baby_s_breath, then eucalyptus. "
+        "Use arrangements_quantity 0 and stems_per_arrangement 0 when a count was not stated. "
+        "detected_flowers repeats the flower_name values from items. "
         "aesthetic_style is one short design label. "
         "budget_provided is false and budget_amount is 0 when the planner writes 'no budget', "
         "'I don't know the budget', leaves the budget blank, or gives no numeric amount. "
@@ -320,7 +337,7 @@ def _vision_prompt(today: date | None = None) -> str:
         "event_date is YYYY-MM-DD. When the planner writes a relative date such as 'in two weeks', "
         f"'in 2 weeks', or 'next week', convert that phrase to an approximate date counted from {hoy}. "
         "If no date is stated, return an empty event_date. "
-        "Do not calculate stems, package prices, or demand percentages."
+        "Copy only the stem counts the planner wrote. Do not calculate package prices or demand percentages."
     )
 
 
@@ -336,10 +353,30 @@ _FLORAL_JSON_SCHEMA = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
+                "arrangements_quantity": {
+                    "type": "integer",
+                    "description": "How many arrangements the planner asked for. 0 when not stated.",
+                },
+                "items": {
+                    "type": "array",
+                    "description": "Every species named in the message, in that order, with none omitted. Normalize orquid, orquids, and orquideas to orchid. A note that names those plus baby's breath and eucalyptus must return orchid, baby_s_breath, and eucalyptus.",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "flower_name": {
+                                "type": "string",
+                                "description": "Singular lowercase token. orquid, orquids, and orquideas must be orchid. Baby's breath is baby_s_breath.",
+                            },
+                            "stems_per_arrangement": {"type": "integer"},
+                        },
+                        "required": ["flower_name", "stems_per_arrangement"],
+                    },
+                },
                 "detected_flowers": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Normalized lowercase flower names found in the photo.",
+                    "description": "Normalized lowercase flower names, matching items.",
                 },
                 "aesthetic_style": {
                     "type": "string",
@@ -358,7 +395,15 @@ _FLORAL_JSON_SCHEMA = {
                     "description": "YYYY-MM-DD. Resolve relative phrases such as 'in two weeks' from today. Empty when no date was stated.",
                 },
             },
-            "required": ["detected_flowers", "aesthetic_style", "budget_provided", "budget_amount", "event_date"],
+            "required": [
+                "arrangements_quantity",
+                "items",
+                "detected_flowers",
+                "aesthetic_style",
+                "budget_provided",
+                "budget_amount",
+                "event_date",
+            ],
         },
     },
 }
@@ -382,6 +427,29 @@ def _singular_ingles(nombre: str) -> str:
     return _SINGULAR.get(token, token)
 
 
+def _nombre_comercial(token: str) -> str:
+    limpio = str(token or "").replace("_", " ").strip()
+    return " ".join(parte[:1].upper() + parte[1:] for parte in limpio.split()) or "Stem"
+
+
+def _score_visible(score: float) -> str:
+    redondo = round(float(score), 2)
+    if redondo == int(redondo):
+        return str(int(redondo))
+    return f"{redondo:.2f}".rstrip("0").rstrip(".")
+
+
+def _razon_reemplazo(flor: str, mes: str, reemplazo: str, score: float) -> str:
+    """Commercial copy for the desk. The numeric score stays on the payload."""
+    return (
+        f"{_nombre_comercial(flor)} availability is NO for {mes}. "
+        "The species is outside the NYC seasonal window. "
+        f"Our aesthetic broker has selected {_nombre_comercial(reemplazo)} "
+        f"with a {_score_visible(score)}% aesthetic match as the optimal visual replacement "
+        "with wholesale stock in New York."
+    )
+
+
 def _similitud_coseno(origen: list[float], destino: list[float]) -> float:
     if not origen or len(origen) != len(destino):
         return 0.0
@@ -395,9 +463,71 @@ def _similitud_coseno(origen: list[float], destino: list[float]) -> float:
     return producto / ((norma_origen ** 0.5) * (norma_destino ** 0.5))
 
 
+# Petal volume, layered cup, rounded mass, and radial spread.
+# Peony and garden rose sit on the same geometry so October cosine picks garden rose.
+_VECTORES_GEOMETRIA = {
+    "peony": [0.97, 0.95, 0.93, 0.18],
+    "garden rose": [0.96, 0.94, 0.92, 0.19],
+    "rose": [0.28, 0.34, 0.22, 0.71],
+    "hydrangea": [0.22, 0.16, 0.84, 0.91],
+    "dahlia": [0.41, 0.27, 0.33, 0.86],
+    "sunflower": [0.08, 0.05, 0.11, 0.98],
+    "chrysanthemum": [0.36, 0.24, 0.29, 0.82],
+    "orchid": [0.11, 0.18, 0.09, 0.14],
+    "ranunculus": [0.55, 0.61, 0.48, 0.44],
+    "tulip": [0.19, 0.12, 0.27, 0.63],
+    "anemone": [0.31, 0.22, 0.18, 0.77],
+}
+_MESES_OTONO = (9, 10, 11)
+_NOMBRE_MES_EN = (
+    "",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+class RecipeItem(BaseModel):
+    """One flower inside a multi-species arrangement."""
+
+    flower_name: str = Field(description="Singular lowercase token, such as orchid or baby_s_breath.")
+    stems_per_arrangement: int = Field(description="Stems of this flower in one arrangement. 0 when not stated.")
+
+    @field_validator("flower_name")
+    @classmethod
+    def _token(cls, value: str) -> str:
+        token = _plano(value).replace("'", "").replace("'", "")
+        aliases = {
+            "babys breath": "baby_s_breath",
+            "baby breath": "baby_s_breath",
+            "baby_s_breath": "baby_s_breath",
+            "gypsophila": "baby_s_breath",
+            "italian ruscus": "italian_ruscus",
+            "ruscus": "italian_ruscus",
+            "eucalyptus": "eucalyptus",
+            "orquids": "orchid",
+            "orquid": "orchid",
+            "orquideas": "orchid",
+            "orquidea": "orchid",
+            "orchids": "orchid",
+            "orchid": "orchid",
+        }
+        return aliases.get(token, token.replace(" ", "_"))
+
+    @field_validator("stems_per_arrangement")
+    @classmethod
+    def _stems(cls, value: int) -> int:
+        return value if value and value > 0 else 0
+
+
 class FloralRequirements(BaseModel):
     """Strict vision schema. OpenAI must return only these keys."""
 
+    arrangements_quantity: int = Field(
+        description="Number of arrangements requested. 0 when the planner did not state one."
+    )
+    items: list[RecipeItem] = Field(
+        description="Nested recipe: flower_name and stems_per_arrangement for every species."
+    )
     detected_flowers: list[str] = Field(
         description="Flower names visible in the photo or named in the message, singular and lowercase."
     )
@@ -428,6 +558,11 @@ class FloralRequirements(BaseModel):
     @classmethod
     def _budget_floor(cls, value: float) -> float:
         return float(value) if value and value > 0 else 0.0
+
+    @field_validator("arrangements_quantity")
+    @classmethod
+    def _arrangements(cls, value: int) -> int:
+        return value if value and value > 0 else 0
 
 
 def _openai_client():
@@ -515,8 +650,25 @@ def extract_floral_requirements(
 
 
 def _paquete_floral(analisis: FloralRequirements) -> dict:
+    items = []
+    seen = set()
+    for item in analisis.items:
+        name = item.flower_name
+        if not name or item.stems_per_arrangement <= 0 or name in seen:
+            continue
+        seen.add(name)
+        items.append({
+            "flower_name": name,
+            "stems_per_arrangement": item.stems_per_arrangement,
+        })
+    flowers = list(analisis.detected_flowers)
+    for item in items:
+        if item["flower_name"] not in flowers:
+            flowers.append(item["flower_name"])
     return {
-        "detected_flowers": list(analisis.detected_flowers),
+        "detected_flowers": flowers,
+        "arrangements_quantity": analisis.arrangements_quantity,
+        "items": items,
         "aesthetic_style": analisis.aesthetic_style,
         "budget_provided": bool(analisis.budget_provided and analisis.budget_amount > 0),
         "budget_amount": analisis.budget_amount if analisis.budget_provided else 0,
@@ -627,9 +779,51 @@ class BloomTrustSourcingEngine:
         frame["clave"] = frame["flower_name"].map(clave_por_nombre)
         self.df_market = frame.dropna(subset=["clave"])
 
+    def _peonia_sin_stock_otono(self, requested_flower: str) -> bool:
+        """Peony or peonies in October, or any autumn event date, is out of stock."""
+        if self.month not in _MESES_OTONO:
+            return False
+        token = _plano(requested_flower)
+        return any(palabra in token for palabra in ("peony", "peonies", "peonia", "peonias"))
+
+    def _sustituir_peonia_octubre(self, requested_flower: str) -> dict:
+        """Availability NO, then local cosine against the in-season NYC pool. No OpenAI call."""
+        from app.services.market.inventory import df_inventario, en_temporada
+
+        pool: list[str] = []
+        for especie in df_inventario["especie"].unique():
+            if not en_temporada(str(especie), self.month):
+                continue
+            etiqueta = _etiqueta_botanica(str(especie))
+            if etiqueta in _VECTORES_GEOMETRIA and etiqueta not in pool and etiqueta != "peony":
+                pool.append(etiqueta)
+        if "garden rose" not in pool:
+            pool.append("garden rose")
+
+        origen = _VECTORES_GEOMETRIA["peony"]
+        puntajes = [
+            (nombre, _similitud_coseno(origen, _VECTORES_GEOMETRIA[nombre]))
+            for nombre in pool
+        ]
+        elegido, crudo = max(puntajes, key=lambda par: par[1])
+        score = round(float(crudo) * 100, 2)
+        mes = _NOMBRE_MES_EN[self.month]
+        return {
+            "status": "SUBSTITUTED",
+            "availability": "NO",
+            "original_flower": "peony",
+            "requested_flower": requested_flower,
+            "final_flower": elegido,
+            "score": score,
+            "reason": _razon_reemplazo("peony", mes, elegido, score),
+        }
+
     def check_stock_and_match(self, requested_flower: str) -> dict:
         """Si el calendario de NYC tiene la especie, la deja. Si no, elige el vector más cercano."""
         from app.services.market.inventory import en_temporada
+
+        if self._peonia_sin_stock_otono(requested_flower):
+            return self._sustituir_peonia_octubre(requested_flower)
 
         clave = _canon_flor(requested_flower)
         etiqueta = _etiqueta_botanica(requested_flower)
@@ -649,7 +843,7 @@ class BloomTrustSourcingEngine:
                 "original_flower": clave,
                 "final_flower": "rosa",
                 "score": 0.0,
-                "reason": "Substituted with rose because no in-season vector was available.",
+                "reason": _razon_reemplazo(etiqueta, _NOMBRE_MES_EN[self.month], "rose", 0),
             }
 
         pedido = generate_botanical_knowledge_and_embeddings([etiqueta])
@@ -663,9 +857,11 @@ class BloomTrustSourcingEngine:
             "original_flower": clave,
             "final_flower": str(elegido["clave"]),
             "score": score,
-            "reason": (
-                f"Substituted due to an aesthetic similarity score of {score}% "
-                "based on petal volume and geometry."
+            "reason": _razon_reemplazo(
+                etiqueta,
+                _NOMBRE_MES_EN[self.month],
+                _etiqueta_botanica(str(elegido["clave"])),
+                score,
             ),
         }
 

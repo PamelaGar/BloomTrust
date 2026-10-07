@@ -13,11 +13,20 @@ from datetime import date, timedelta
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from openai import OpenAI
 
-from app.services.agents.multimodal_agent import _VISION_MODEL, _cargar_env, extract_floral_requirements_from_image
+from app.services.agents.multimodal_agent import (
+    _VISION_MODEL,
+    _cargar_env,
+    coincidir_sustituto,
+    extract_floral_requirements,
+    extract_floral_requirements_from_image,
+)
 from app.services.market.inventory import df_inventario
 from app.valuation.engine import (
+    BloomTrustCareEngine,
     BloomTrustCostEngine,
+    BloomTrustDesignConsultant,
     BloomTrustPredictiveForecaster,
+    BloomTrustTrendsEngine,
     BloomTrustVolumeEstimator,
 )
 
@@ -67,6 +76,11 @@ _DISPLAY = {
     "sunflower": "Sunflower",
     "chrysanthemum": "Chrysanthemum",
     "carnation": "Carnation",
+    "garden rose": "Garden Rose",
+    "baby_s_breath": "Baby's Breath",
+    "eucalyptus": "Eucalyptus",
+    "italian_ruscus": "Italian Ruscus",
+    "lisianthus": "Lisianthus",
 }
 _MONTHS = {
     "january": 1, "enero": 1,
@@ -109,8 +123,33 @@ def _fold(value: str) -> str:
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
+def _canon_especie(name: str) -> str:
+    """One key per species. Orchid, orchids and orquidea all stay orchid."""
+    token = _fold(name or "").replace("'", "").replace("'", "").replace("_", " ")
+    token = " ".join(token.split())
+    if not token:
+        return ""
+    aliases = (
+        ("phalaenopsis", "orchid"),
+        ("orquids", "orchid"),
+        ("orquid", "orchid"),
+        ("orquideas", "orchid"),
+        ("orquidea", "orchid"),
+        ("eucalipto", "eucalyptus"),
+        ("eucalyptus", "eucalyptus"),
+        ("baby s breath", "baby_s_breath"),
+        ("babys breath", "baby_s_breath"),
+        ("baby breath", "baby_s_breath"),
+        ("gypsophila", "baby_s_breath"),
+    )
+    for phrase, canon in (*aliases, *_FLOWER_TOKENS):
+        if token == phrase or token == canon.replace("_", " "):
+            return canon
+    return token.replace(" ", "_")
+
+
 def _catalog_key(species: str) -> str:
-    token = _fold(species)
+    token = _canon_especie(species) or _fold(species)
     return _INVENTORY_KEY.get(token, token)
 
 
@@ -153,17 +192,36 @@ def _quantity(message: str) -> int:
     return count if 1 <= count <= 200 else 1
 
 
-def _stated_stems(raw: str, message: str) -> int | None:
-    """Exact stem count from the form field, or from a phrase such as '150 stems'."""
+def _integer_quantity(message: str) -> int:
+    """First stem count in the note. Money figures and years are not stem counts."""
+    text = (message or "").replace(",", "")
+    explicit = re.search(r"\b(\d+)\s*(?:stems?|tallos?)\b", _fold(text))
+    if explicit:
+        return int(explicit.group(1))
+    stripped = re.sub(
+        r"(?:presupuesto|budget|usd|\$)\s*[:.]?\s*\d+(?:\.\d+)?",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    stripped = re.sub(
+        r"\b\d+(?:\.\d+)?\s*(?:usd|dollars|dolares|dólares)\b",
+        " ",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    stripped = re.sub(r"\b(?:19|20)\d{2}\b", " ", stripped)
+    stripped = re.sub(r"\d+\.\d+", " ", stripped)
+    found = re.search(r"\b(\d+)\b", stripped)
+    return int(found.group(1)) if found else 0
+
+
+def _stated_stems(raw: str, message: str) -> int:
+    """Form field wins, including 0 when the planner named no quantity. Never invent a recipe count."""
     cleaned = (raw or "").strip().replace(",", "")
     if re.fullmatch(r"\d+", cleaned):
-        count = int(cleaned)
-        return count if count > 0 else None
-    match = re.search(r"\b(\d+)\s*(?:stems?|tallos?)\b", _fold(message))
-    if not match:
-        return None
-    count = int(match.group(1))
-    return count if count > 0 else None
+        return int(cleaned)
+    return _integer_quantity(message)
 
 
 _BUDGET_REFUSAL = (
@@ -266,12 +324,39 @@ def _message_budget(message: str) -> float | None:
     if labeled:
         value = float(labeled.group(1))
         return value if value > 0 else None
+    without_volume = re.sub(r"\b\d+(?:\.\d+)?\s*(?:stems?|tallos?)\b", " ", source, flags=re.I)
     bare = [
         float(item)
-        for item in re.findall(r"(?:^|[^\d])(\d{3,7}(?:\.\d+)?)(?!\d)", source)
+        for item in re.findall(r"(?:^|[^\d])(\d{3,7}(?:\.\d+)?)(?!\d)", without_volume)
         if not 1900 <= float(item) <= 2100
     ]
     return bare[0] if bare else None
+
+
+def _explicit_money(message: str) -> float | None:
+    """A dollar cap stated as budget, USD, or $. A stem count is not money."""
+    source = (message or "").replace(",", "")
+    labeled = re.search(r"(?:budget|presupuesto|usd|\$)\s*[:.]?\s*(\d+(?:\.\d+)?)", source, re.I)
+    if not labeled:
+        labeled = re.search(r"(\d+(?:\.\d+)?)\s*(?:usd|dollars)\b", source, re.I)
+    if not labeled:
+        return None
+    value = float(labeled.group(1))
+    return value if value > 0 else None
+
+
+def _presupuesto_motor(message: str, extracted: float | None = None) -> float:
+    """Value passed to BloomTrustCostEngine. 0.0 opens the fixed-volume quote."""
+    explicit = _explicit_money(message)
+    if explicit is None:
+        return 0.0
+    try:
+        suggested = float(extracted) if extracted is not None else 0.0
+    except (TypeError, ValueError):
+        suggested = 0.0
+    if suggested > 0 and abs(suggested - explicit) < 0.01:
+        return suggested
+    return explicit
 
 
 def _budget_is_refused(message: str) -> bool:
@@ -315,6 +400,27 @@ def _request_label(detected: list[str]) -> str:
     return f"{', '.join(labels[:-1])} and {labels[-1]}"
 
 
+def _care_data(flowers: list[str]) -> list[dict]:
+    """One conditioning card per detected species, using the Colab care dictionary."""
+    engine = BloomTrustCareEngine()
+    cards = []
+    seen = set()
+    for raw in flowers or []:
+        token = _fold(str(raw))
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        guide = engine.query_botanical_guide(token)
+        cards.append({
+            "flower": _display_name(token),
+            "scientific_name": guide.get("scientific_name") or "",
+            "hydration": guide.get("hydration") or "",
+            "temperature": guide.get("temperature") or "",
+            "alert": guide.get("alert") or "",
+        })
+    return cards
+
+
 def _respuesta_sin_presupuesto(detected: list[str]) -> dict:
     text = (
         f"🌸 I have successfully identified your request for {_request_label(detected)}! "
@@ -322,7 +428,7 @@ def _respuesta_sin_presupuesto(detected: list[str]) -> dict:
         "I need you to provide an estimated budget figure and a specific date. "
         "Please let me know your target investment so I can balance your stem counts."
     )
-    return {"type": "text", "text": text, "detected_flowers": detected}
+    return {"type": "text", "text": text, "detected_flowers": detected, "care_data": _care_data(detected)}
 
 
 _INTENT_SCHEMA = {
@@ -336,8 +442,8 @@ _INTENT_SCHEMA = {
             "properties": {
                 "intent": {
                     "type": "string",
-                    "enum": ["GREETING", "CREATIVE_ADVICE", "SOURCING"],
-                    "description": "GREETING has priority over every other label.",
+                    "enum": ["GREETING", "CREATIVE_ADVICE", "SOURCING", "OUT_OF_DOMAIN"],
+                    "description": "GREETING has priority over every other label. OUT_OF_DOMAIN rejects anything outside flowers, events, and NYC wholesale.",
                 },
                 "detected_flowers": {
                     "type": "array",
@@ -345,24 +451,128 @@ _INTENT_SCHEMA = {
                     "description": "Singular lowercase flower names named in the message. Empty for a greeting.",
                 },
                 "aesthetic_style": {"type": "string"},
+                "max_budget": {
+                    "type": "number",
+                    "description": "Explicit monetary cap in USD. Use 0.0 when the planner did not state a dollar budget. A stem count such as 100 stems is not a budget.",
+                },
             },
-            "required": ["intent", "detected_flowers", "aesthetic_style"],
+            "required": ["intent", "detected_flowers", "aesthetic_style", "max_budget"],
         },
     },
 }
 _FLOWER_TOKENS = (
+    ("baby's breath", "baby_s_breath"),
+    ("babys breath", "baby_s_breath"),
+    ("baby breath", "baby_s_breath"),
+    ("gypsophila", "baby_s_breath"),
+    ("italian ruscus", "italian_ruscus"),
+    ("eucalyptus", "eucalyptus"),
+    ("garden roses", "garden rose"),
+    ("garden rose", "garden rose"),
     ("hydrangea", "hydrangea"), ("hydrangeas", "hydrangea"), ("hortensia", "hydrangea"),
-    ("orchid", "orchid"), ("orchids", "orchid"), ("orquidea", "orchid"),
-    ("peony", "peony"), ("peonies", "peony"), ("peonia", "peony"),
-    ("rose", "rose"), ("roses", "rose"), ("rosa", "rose"),
+    ("orquids", "orchid"), ("orquid", "orchid"),
+    ("orchid", "orchid"), ("orchids", "orchid"), ("orquideas", "orchid"), ("orquidea", "orchid"),
+    ("peony", "peony"), ("peonies", "peony"), ("peonias", "peony"), ("peonia", "peony"),
+    ("carnation", "carnation"), ("carnations", "carnation"), ("claveles", "carnation"), ("clavel", "carnation"),
+    ("lisianthus", "lisianthus"),
+    ("rose", "rose"), ("roses", "rose"), ("rosas", "rose"), ("rosa", "rose"),
     ("tulip", "tulip"), ("tulips", "tulip"), ("tulipan", "tulip"),
     ("ranunculus", "ranunculus"), ("ranunculo", "ranunculus"),
-    ("carnation", "carnation"), ("carnations", "carnation"), ("clavel", "carnation"),
     ("anemone", "anemone"), ("anemones", "anemone"),
     ("dahlia", "dahlia"), ("dahlias", "dahlia"),
     ("sunflower", "sunflower"), ("sunflowers", "sunflower"),
     ("chrysanthemum", "chrysanthemum"), ("chrysanthemums", "chrysanthemum"),
 )
+
+
+def _receta_local(message: str) -> dict | None:
+    """Read '5 arrangements with 2 orchids, 2 baby's breath and 4 eucalyptus' without the model."""
+    folded = _fold(message or "")
+    counted = re.search(
+        r"\b(\d+)\s*(?:arrangements?|arreglos?|centerpieces?|bouquets?|ramos?)\b",
+        folded,
+    )
+    if not counted:
+        return None
+    arrangements = int(counted.group(1))
+    if arrangements <= 0:
+        return None
+    found_items = []
+    seen = set()
+    for token, canon in _FLOWER_TOKENS:
+        if canon in seen:
+            continue
+        before = re.search(rf"\b(\d+)\s+(?:stems?\s+)?(?:of\s+|de\s+)?{re.escape(token)}\b", folded)
+        after = re.search(rf"\b{re.escape(token)}\b\s*(?:\(|:|x|×)\s*(\d+)", folded)
+        found = before or after
+        if not found:
+            continue
+        per = int(found.group(1))
+        if per <= 0:
+            continue
+        seen.add(canon)
+        found_items.append((found.start(), {"flower_name": canon, "stems_per_arrangement": per}))
+    items = [item for _, item in sorted(found_items, key=lambda pair: pair[0])]
+    if not items:
+        return None
+    return {"arrangements_quantity": arrangements, "items": items, "aesthetic_style": ""}
+
+
+def _receta_desde_requisitos(requirements: dict | None) -> dict | None:
+    if not requirements:
+        return None
+    items = []
+    seen = set()
+    for raw in requirements.get("items") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = _canon_especie(str(raw.get("flower_name") or raw.get("flower") or raw.get("name") or ""))
+        per = int(raw.get("stems_per_arrangement") or raw.get("stems") or raw.get("quantity") or 0)
+        if not name or per <= 0 or name in seen:
+            continue
+        seen.add(name)
+        items.append({"flower_name": name, "stems_per_arrangement": per})
+    arrangements = int(requirements.get("arrangements_quantity") or 0)
+    if arrangements <= 0 or not items:
+        return None
+    return {
+        "arrangements_quantity": arrangements,
+        "items": items,
+        "aesthetic_style": str(requirements.get("aesthetic_style") or ""),
+    }
+
+
+def _acumular_costo_receta(arrangements_quantity: int, items: list[dict]) -> dict:
+    """Add every species. Orchid is not optional when it is in the list."""
+    arrangements = int(arrangements_quantity)
+    total_base_price = 0.0
+    total_stems = 0
+    rows = []
+    for item in list(items):
+        name = _canon_especie(str(item.get("flower_name") or ""))
+        per = int(item.get("stems_per_arrangement") or 0)
+        if not name or per <= 0 or arrangements <= 0:
+            continue
+        item_total_stems = per * arrangements
+        item_base_price = _standard_wholesale(name)
+        subtotal = item_base_price * item_total_stems
+        total_base_price += subtotal
+        total_stems += item_total_stems
+        rows.append({
+            "flower_name": name,
+            "display_name": _display_name(name),
+            "stems_per_arrangement": per,
+            "total_stems": item_total_stems,
+            "unit_price_usd": round(item_base_price, 2),
+            "premium_subtotal_usd": round(subtotal * 1.5, 2),
+            "standard_subtotal_usd": round(subtotal, 2),
+            "opportunity_subtotal_usd": round(subtotal * 0.7, 2),
+        })
+    return {
+        "total_base_price": round(total_base_price, 2),
+        "total_stems": total_stems,
+        "items": rows,
+    }
 
 
 def _es_saludo(message: str) -> bool:
@@ -398,22 +608,66 @@ def _es_consejo(message: str) -> bool:
     ))
 
 
+def _es_consulta_peonia(nombre: str) -> bool:
+    token = _fold(nombre or "")
+    return any(palabra in token for palabra in ("peony", "peonies", "peonia", "peonias"))
+
+
+def _match_peonia_otono(nombres: list[str], mes: int) -> dict | None:
+    """Run the October peony override once. Other species keep their own stock path."""
+    if not any(_es_consulta_peonia(nombre) for nombre in nombres):
+        return None
+    match = coincidir_sustituto("peony", mes)
+    if match.get("availability") != "NO":
+        return None
+    return match
+
+
 def _flores_en_texto(message: str) -> list[str]:
     folded = _fold(message or "")
+    ocupado = [False] * len(folded)
     halladas = []
     for token, canon in _FLOWER_TOKENS:
-        if re.search(rf"\b{token}\b", folded) and canon not in halladas:
-            halladas.append(canon)
+        for match in re.finditer(rf"\b{re.escape(token)}\b", folded):
+            if any(ocupado[match.start():match.end()]):
+                continue
+            for index in range(match.start(), match.end()):
+                ocupado[index] = True
+            if canon not in halladas:
+                halladas.append(canon)
     return halladas
 
 
+_DOMAIN_WORDS = (
+    "flower", "flowers", "floral", "bloom", "blooms", "bouquet", "stem", "stems", "tallo", "tallos",
+    "wedding", "gala", "event", "events", "centerpiece", "centrepiece", "wholesale", "chelsea",
+    "greenery", "filler", "fillers", "arrangement", "bride", "ceremony", "greenhouse", "sourcing",
+    "tablescape", "vase", "garland", "boutonniere", "corsage", "reception", "planner", "market",
+    "january", "february", "march", "april", "june", "july", "august", "september",
+    "october", "november", "december", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+_RECHAZO_DOMINIO = "I am sorry, I can only assist you with flower inquiries and event sourcing analytics."
+
+
+def _en_dominio_floral(message: str) -> bool:
+    """Flowers, event quoting, and the NYC wholesale desk stay in domain."""
+    if _flores_en_texto(message) or _explicit_money(message):
+        return True
+    folded = _fold(message or "")
+    return any(re.search(rf"\b{re.escape(word)}\b", folded) for word in _DOMAIN_WORDS)
+
+
 def _clasificar_local(message: str) -> dict:
+    presupuesto = _presupuesto_motor(message)
     if _es_saludo(message):
-        return {"intent": "GREETING", "detected_flowers": [], "aesthetic_style": ""}
+        return {"intent": "GREETING", "detected_flowers": [], "aesthetic_style": "", "max_budget": 0.0}
     flores = _flores_en_texto(message)
-    if _es_consejo(message) and not (_message_budget(message) and flores):
-        return {"intent": "CREATIVE_ADVICE", "detected_flowers": flores, "aesthetic_style": ""}
-    return {"intent": "SOURCING", "detected_flowers": flores, "aesthetic_style": ""}
+    if _es_consejo(message) and not (_explicit_money(message) and flores):
+        return {"intent": "CREATIVE_ADVICE", "detected_flowers": flores, "aesthetic_style": "", "max_budget": presupuesto}
+    if not flores and not _en_dominio_floral(message):
+        return {"intent": "OUT_OF_DOMAIN", "detected_flowers": [], "aesthetic_style": "", "max_budget": 0.0}
+    return {"intent": "SOURCING", "detected_flowers": flores, "aesthetic_style": "", "max_budget": presupuesto}
 
 
 def _prompt_intencion() -> str:
@@ -425,8 +679,15 @@ def _prompt_intencion() -> str:
         "Do not treat that as a sourcing request and do not ask for a photo. "
         "CREATIVE_ADVICE is for inspiration, 'I don't know what to do', or a low-budget design question "
         "that does not yet name a numeric budget. "
-        "SOURCING is a request to price stems, dates, or named flowers. "
+        "SOURCING is a request to price stems, dates, or named flowers for an event or the NYC wholesale market. "
+        "OUT_OF_DOMAIN is mandatory when the text is not about the floral industry, event quoting, "
+        "or the New York wholesale flower market. Weather, sports, software, recipes, jokes, and general chat "
+        "are OUT_OF_DOMAIN. A flower name, a stem count, an event date, greenery, or a wholesale budget "
+        "is never OUT_OF_DOMAIN. "
         "detected_flowers uses singular lowercase English names stated in the text. "
+        "'garden rose' is the species garden rose, not rose. "
+        "max_budget is an explicit dollar cap. Set max_budget to 0.0 when the planner "
+        "does not state a monetary budget. 'what about 100 stems of peonies?' has no budget, so max_budget is 0.0. "
         "Do not calculate prices or stem counts."
     )
 
@@ -458,17 +719,26 @@ def classify_intent(message: str) -> dict:
         )
         crudo = json.loads(completion.choices[0].message.content or "{}")
         intent = str(crudo.get("intent") or "")
-        if intent not in {"GREETING", "CREATIVE_ADVICE", "SOURCING"}:
+        if intent not in {"GREETING", "CREATIVE_ADVICE", "SOURCING", "OUT_OF_DOMAIN"}:
             return local
-        flores = [
+        if intent == "OUT_OF_DOMAIN" and (local["detected_flowers"] or _en_dominio_floral(message)):
+            intent = local["intent"] if local["intent"] != "OUT_OF_DOMAIN" else "SOURCING"
+        flores_modelo = [
             _fold(str(item))
             for item in crudo.get("detected_flowers") or []
             if str(item).strip()
         ]
+        flores = list(local["detected_flowers"])
+        for item in flores_modelo:
+            if item == "rose" and "garden rose" in flores:
+                continue
+            if item not in flores:
+                flores.append(item)
         return {
             "intent": intent,
-            "detected_flowers": flores or local["detected_flowers"],
+            "detected_flowers": flores,
             "aesthetic_style": _fold(str(crudo.get("aesthetic_style") or "")),
+            "max_budget": _presupuesto_motor(message, crudo.get("max_budget")),
         }
     except Exception as exc:
         _log.warning("Text intent request failed: %s", type(exc).__name__)
@@ -478,27 +748,106 @@ def classify_intent(message: str) -> dict:
 def _respuesta_saludo(message: str) -> dict:
     nombre = _nombre_saludo(message)
     saludo = f"Hi {nombre}." if nombre else "Hi."
+    texto = (
+        f"{saludo} I am your BloomTrust Sourcing Broker. "
+        "Whenever you are ready, share the flowers, a date, and a budget, "
+        "and I will compare Premium, Standard, and Opportunity."
+    )
+    return {"type": "text", "intent": "GREETING", "text": texto, "bot_response": texto}
+
+
+def _tip_por_especie(species: str) -> str:
+    nombre = (species or "this species").strip() or "this species"
+    return (
+        f"✨ Proactive Design Tip: Based on recent NYC luxury trends, {nombre} is frequently designed "
+        "alongside premium greenery or white fillers. Would you like to check current market "
+        "availability for those complementary items?"
+    )
+
+
+def _inspiracion_respaldo() -> str:
+    return (
+        "Tell me the mood of the event and I will pair the hero bloom with premium greenery "
+        "and white fillers from the Chelsea Flower Market."
+    )
+
+
+def _consultar_diseno(message: str, species: str, modo: str) -> str:
+    """Live design note from gpt-4o-mini. A local sentence covers a missing key or a failed call."""
+    respaldo = _tip_por_especie(species) if modo == "quote" else _inspiracion_respaldo()
+    try:
+        _cargar_env()
+    except OSError:
+        return respaldo
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return respaldo
+    if modo == "quote":
+        system = (
+            "You are the BloomTrust design consultant for the Chelsea Flower Market in New York. "
+            "Write one proactive English tip for the named species. Mention premium greenery or white fillers "
+            "and ask whether the planner wants current wholesale availability for those complements. "
+            "Two sentences at most. Do not calculate prices or stem counts."
+        )
+        user = f"Species: {species or 'this species'}\nPlanner note:\n{message}"
+    else:
+        system = (
+            "You are the BloomTrust design consultant for the Chelsea Flower Market in New York. "
+            "The planner wants floral inspiration. Reply in English in two or three sentences "
+            "about greenery, white fillers, and event design. Do not calculate prices or stem counts."
+        )
+        user = message or "The planner wants floral inspiration."
+    try:
+        client = OpenAI(api_key=api_key, timeout=30.0)
+        completion = client.chat.completions.create(
+            model=_VISION_MODEL,
+            temperature=0.4,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        texto = (completion.choices[0].message.content or "").strip()
+        if not texto or "low packed runner" in texto.lower():
+            return respaldo
+        return texto
+    except Exception as exc:
+        _log.warning("Design consultant request failed: %s", type(exc).__name__)
+        return respaldo
+
+
+_TALLOS_COMPLEMENTO = 20
+
+
+def _lote_complementario(consejo: dict) -> dict:
+    """Price the named complement with the cost engine. The model never sets the dollars."""
+    especie = str(consejo.get("species") or "Eucalyptus")
+    wholesale = _standard_wholesale(especie)
+    standard = BloomTrustCostEngine(especie, wholesale).generate_packages(0.0, _TALLOS_COMPLEMENTO)["Standard"]
     return {
-        "type": "text",
-        "intent": "GREETING",
-        "text": (
-            f"{saludo} I am your BloomTrust Sourcing Broker. "
-            "Whenever you are ready, share the flowers, a date, and a budget, "
-            "and I will compare Premium, Standard, and Opportunity."
-        ),
+        "species": especie,
+        "image_url": str(consejo.get("image_url") or ""),
+        "unsplash_page": str(consejo.get("unsplash_page") or "https://unsplash.com"),
+        "supplier": "Midtown Stem Supply",
+        "tier": "Standard",
+        "stems": standard["allocated_stems"],
+        "unit_price_usd": standard["unit_price_USD"],
+        "subtotal_usd": standard["package_total_USD"],
     }
 
 
-def _respuesta_creativa(detected: list[str]) -> dict:
+def _respuesta_creativa(message: str, detected: list[str]) -> dict:
+    especie = _display_name(detected[0]) if detected else ""
+    consejo = BloomTrustDesignConsultant().generate_styling_advice(message, especie)
+    texto = str(consejo.get("advice") or "").strip()
     return {
         "type": "text",
         "intent": "CREATIVE_ADVICE",
         "detected_flowers": detected,
-        "text": (
-            "If the recipe is still open, build a low packed runner: one hero bloom carries the color, "
-            "and a second layer fills every gap so the table reads as a single cloud. "
-            "Add the liquidation flowers from the Opportunity tier so the budget stretches without losing density."
-        ),
+        "care_data": _care_data(detected),
+        "text": texto,
+        "bot_response": texto,
+        "complement": _lote_complementario(consejo),
     }
 
 
@@ -553,14 +902,23 @@ async def analyze_event(
         detected = [str(item) for item in classified.get("detected_flowers") or [] if str(item).strip()]
         if intent == "GREETING":
             return _respuesta_saludo(texto)
+        if intent == "OUT_OF_DOMAIN":
+            return {
+                "type": "text",
+                "intent": "OUT_OF_DOMAIN",
+                "text": _RECHAZO_DOMINIO,
+                "bot_response": _RECHAZO_DOMINIO,
+            }
         if intent == "CREATIVE_ADVICE":
-            return _respuesta_creativa(detected)
+            return await asyncio.to_thread(_respuesta_creativa, texto, detected)
         requirements = {
             "detected_flowers": detected,
             "aesthetic_style": classified.get("aesthetic_style") or "",
-            "budget_provided": False,
+            "budget_provided": float(classified.get("max_budget") or 0) > 0,
+            "budget_amount": float(classified.get("max_budget") or 0),
             "event_date": "",
         }
+        motor_budget = _presupuesto_motor(texto, classified.get("max_budget"))
     else:
         requirements = await asyncio.to_thread(
             extract_floral_requirements_from_image,
@@ -568,38 +926,103 @@ async def analyze_event(
             texto,
         )
         detected = [str(item).strip().lower() for item in requirements.get("detected_flowers") or [] if str(item).strip()]
-
-    budget = _quoted_budget(texto, max_budget, requirements)
-    if budget is None:
-        return _respuesta_sin_presupuesto(detected)
+        motor_budget = _presupuesto_motor(texto)
 
     aesthetic_style = str(requirements.get("aesthetic_style") or "")
+    recipe = _receta_local(texto)
+    if recipe is None and image_bytes is not None:
+        recipe = _receta_desde_requisitos(requirements)
+    elif recipe is None:
+        parsed = await asyncio.to_thread(extract_floral_requirements, texto)
+        recipe = _receta_desde_requisitos(parsed)
+    if recipe:
+        detected = [item["flower_name"] for item in recipe["items"]]
+        if recipe.get("aesthetic_style"):
+            aesthetic_style = recipe["aesthetic_style"]
     primary = detected[0] if detected else "rose"
     event_date = _event_date(texto, str(requirements.get("event_date") or ""))
     design = _design_type(texto)
     quantity = _quantity(texto)
-    stated = _stated_stems(required_stems, texto)
-    try:
-        sizing = BloomTrustVolumeEstimator().estimate_required_stems(design, quantity)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    if stated is not None:
+    month_number = int(event_date[5:7])
+    mencionadas = _flores_en_texto(texto)
+    if mencionadas and all(_es_consulta_peonia(item) for item in mencionadas):
+        detected = ["peony"]
+        primary = "peony"
+    elif any(_es_consulta_peonia(item) for item in mencionadas) and not any(_es_consulta_peonia(item) for item in detected):
+        detected.append("peony")
+    consulta = [*detected, *mencionadas]
+    if recipe:
+        consulta.extend(str(item.get("flower_name") or "") for item in recipe["items"])
+    sustitucion = _match_peonia_otono(consulta, month_number)
+    if sustitucion:
+        reemplazo = str(sustitucion["final_flower"])
+        detected = [reemplazo if _es_consulta_peonia(item) else item for item in detected]
+        if not detected or _es_consulta_peonia(primary):
+            primary = reemplazo
+            if reemplazo not in detected:
+                detected = [reemplazo, *detected]
+        if recipe:
+            recipe = {
+                **recipe,
+                "items": [
+                    {**item, "flower_name": reemplazo}
+                    if _es_consulta_peonia(str(item.get("flower_name") or ""))
+                    else item
+                    for item in recipe["items"]
+                ],
+            }
+    recipe_payload = None
+    if recipe:
+        acumulado = _acumular_costo_receta(recipe["arrangements_quantity"], recipe["items"])
+        try:
+            packages = BloomTrustCostEngine.price_from_accumulated_total(
+                motor_budget,
+                acumulado["total_base_price"],
+                acumulado["total_stems"],
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        rows = acumulado["items"]
+        total_stems = acumulado["total_stems"]
+        sizing = {
+            "design_type": design,
+            "quantity": recipe["arrangements_quantity"],
+            "total_stems": total_stems,
+            "required_stems": total_stems,
+        }
+        variety = " + ".join(row["display_name"] for row in rows)
+        wholesale = packages["Standard"]["unit_price_USD"]
+        recipe_payload = {
+            "arrangements_quantity": recipe["arrangements_quantity"],
+            "arrangements_quoted": recipe["arrangements_quantity"],
+            "items": rows,
+            "aesthetic_style": aesthetic_style,
+            "total_stems": total_stems,
+            "premium_total_usd": packages["Premium"]["package_total_USD"],
+            "standard_total_usd": packages["Standard"]["package_total_USD"],
+            "opportunity_total_usd": packages["Opportunity"]["package_total_USD"],
+        }
+    else:
+        stated = _stated_stems(required_stems, texto)
+        try:
+            sizing = BloomTrustVolumeEstimator().estimate_required_stems(design, quantity)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         sizing["total_stems"] = stated
         sizing["required_stems"] = stated
-
-    wholesale = _standard_wholesale(primary)
-    try:
-        packages = BloomTrustCostEngine(
-            target_flower=primary,
-            base_wholesale_price=wholesale,
-        ).generate_packages(budget, int(sizing["total_stems"]))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        wholesale = _standard_wholesale(primary)
+        try:
+            packages = BloomTrustCostEngine(
+                target_flower=primary,
+                base_wholesale_price=wholesale,
+            ).generate_packages(motor_budget, int(sizing["total_stems"]))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        variety = _display_name(primary)
     demand = BloomTrustPredictiveForecaster(event_date).calculate_market_volatility()
-    month_number = int(event_date[5:7])
     month_name = _MONTH_NAME[month_number]
     surge = int(demand["demand_surge_percentage"])
-    variety = _display_name(primary)
+    design_tip = await asyncio.to_thread(_consultar_diseno, texto, variety, "quote")
     alert = (
         f"Reserve stems this week. Predictive demand for {month_name} "
         f"is {surge}% on the fixed New York event calendar."
@@ -624,8 +1047,27 @@ async def analyze_event(
             "alert": alert,
         },
         "type": "quote",
+        "recipe": recipe_payload,
+        "bot_response": design_tip,
+        "design_tip": design_tip,
         "base_wholesale_price_usd": wholesale,
-        "max_budget": budget,
+        "max_budget": motor_budget,
         "packages": packages,
         "financials": _financial_rows(variety, packages),
+        "botanical_guide": BloomTrustCareEngine().query_botanical_guide(primary),
+        "care_data": _care_data(detected or [primary]),
+        "market_feed": BloomTrustTrendsEngine().get_live_market_feed(),
+        **(
+            {
+                "stock_status": sustitucion["reason"],
+                "substitution": {
+                    "availability": sustitucion["availability"],
+                    "original_flower": sustitucion["original_flower"],
+                    "final_flower": sustitucion["final_flower"],
+                    "score": sustitucion["score"],
+                },
+            }
+            if sustitucion
+            else {}
+        ),
     }

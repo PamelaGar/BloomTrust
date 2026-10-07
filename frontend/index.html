@@ -1579,7 +1579,13 @@
         img.alt = foto.alt;
         img.className = "w-12 h-12 md:w-14 md:h-14 object-cover rounded-lg flex-shrink-0 mr-3";
         articulo.appendChild(img);
-      }
+      } else {
+  const hueco = document.createElement("span");
+  hueco.className = "producto-hueco w-12 h-12 md:w-14 md:h-14 rounded-lg flex-shrink-0 mr-3 flex items-center justify-center text-xl";
+  hueco.setAttribute("aria-hidden", "true");
+  hueco.textContent = "🌸";
+  articulo.appendChild(hueco);
+}
       const texto = document.createElement("div");
       texto.className = "min-w-0 flex-1";
       const titulo = document.createElement("h4");
@@ -1600,7 +1606,7 @@
         const foto = fotoDeFlor(item.nombre);
         const imagen = foto
           ? `<img class="w-12 h-12 md:w-14 md:h-14 object-cover rounded-lg flex-shrink-0 mr-3" src="${escapar(foto.src)}" alt="${escapar(foto.alt)}" loading="lazy">`
-          : `<span class="producto-hueco w-12 h-12 md:w-14 md:h-14 rounded-lg flex-shrink-0 mr-3" aria-hidden="true"></span>`;
+          : `<span class="producto-hueco w-12 h-12 md:w-14 md:h-14 rounded-lg flex-shrink-0 mr-3 flex items-center justify-center text-xl" aria-hidden="true">🌸</span>`;
         const tallos = Number(item.tallos) || 0;
         const unitario = Number(item.unitario);
         const precio = Number.isFinite(unitario) && unitario > 0 ? ` · ${dinero(unitario)} / stem` : "";
